@@ -90,14 +90,19 @@
           <button id="btn-wakelock" class="btn-icon nav-wakelock-btn active" title="화면 꺼짐 방지 (화면 켜짐 유지)">
             <i class="fa-solid fa-sun" id="icon-wakelock"></i>
           </button>
+          <button id="btn-focus-mode" class="btn-icon nav-focus-btn" title="플리만 보기 (감상 모드)">
+            <i class="fa-solid fa-compact-disc"></i>
+          </button>
         </div>
         <div class="nav-brand mobile-only">
           <span class="brand-my">My</span>
           <span class="brand-playlist rainbow-text">Playlist</span>
         </div>
-        <button id="btn-mobile-toggle-view" class="btn-icon nav-view-btn mobile-only" title="영상/목록 화면 전환">
-          <i class="fa-solid fa-tv" id="icon-mobile-view"></i>
-        </button>
+        <div class="top-nav-right mobile-only">
+          <button id="btn-mobile-toggle-view" class="btn-icon nav-view-btn" title="영상/목록 화면 전환">
+            <i class="fa-solid fa-tv" id="icon-mobile-view"></i>
+          </button>
+        </div>
       </div>
 
       <!-- 상단 헤더 & 영상 추가 바 -->
@@ -281,6 +286,9 @@
 
       <!-- 우측 볼륨 (데스크탑 전용) -->
       <div class="bar-options-right desktop-only">
+        <button id="btn-focus-mode-bar" class="control-btn" title="플리만 보기 (감상 모드)">
+          <i class="fa-solid fa-compact-disc"></i>
+        </button>
         <button id="btn-toggle-video" class="control-btn" title="영상 화면 숨기기/보기">
           <i class="fa-solid fa-display"></i>
         </button>
@@ -292,6 +300,61 @@
         </div>
       </div>
     </footer>
+  </div>
+
+  <!-- ==================== 🌟 플리만 보기 (포커스 감상 모드 오버레이) ==================== -->
+  <div id="focus-mode-overlay" class="focus-mode-overlay hidden">
+    <!-- 배경 동적 색상 블러 효과 -->
+    <div class="focus-ambient-bg"></div>
+
+    <!-- 상단 헤더 & 닫기 버튼 -->
+    <div class="focus-header">
+      <div class="focus-header-info">
+        <span class="focus-badge"><i class="fa-solid fa-sparkles"></i> 감상 모드</span>
+        <h2 id="focus-pl-name" class="focus-pl-name">플레이리스트</h2>
+      </div>
+      <button id="btn-close-focus" class="btn-icon focus-close-btn" title="감상 모드 닫기 (ESC)">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <!-- 중앙 스크롤 캐러셀 뷰포트 -->
+    <div class="focus-carousel-viewport" id="focus-carousel-viewport">
+      <div class="focus-track-list" id="focus-track-list">
+        <!-- 동적으로 렌더링되는 트랙 카드들 -->
+      </div>
+    </div>
+
+    <!-- 하단 컴팩트 컨트롤러 & 프로그레스 바 -->
+    <div class="focus-bottom-panel">
+      <div class="focus-buttons">
+        <button id="btn-focus-shuffle" class="focus-btn-sm" title="셔플">
+          <i class="fa-solid fa-shuffle"></i>
+        </button>
+        <button id="btn-focus-prev" class="focus-ctrl-btn" title="이전 곡">
+          <i class="fa-solid fa-backward-step"></i>
+        </button>
+        <button id="btn-focus-play-pause" class="focus-ctrl-btn play-btn" title="재생 / 일시정지">
+          <i class="fa-solid fa-play" id="icon-focus-play-pause"></i>
+        </button>
+        <button id="btn-focus-next" class="focus-ctrl-btn" title="다음 곡">
+          <i class="fa-solid fa-forward-step"></i>
+        </button>
+        <button id="btn-focus-repeat" class="focus-btn-sm" title="반복">
+          <i class="fa-solid fa-repeat" id="icon-focus-repeat"></i>
+        </button>
+      </div>
+
+      <div class="focus-progress-container">
+        <span id="focus-time-current" class="time-text">0:00</span>
+        <div class="focus-progress-track" id="focus-progress-bar">
+          <div class="focus-progress-filled" id="focus-progress-filled">
+            <div class="focus-progress-thumb"></div>
+          </div>
+        </div>
+        <span id="focus-time-total" class="time-text">0:00</span>
+      </div>
+    </div>
   </div>
 
   <!-- 백그라운드 오디오 유지용 무음 트랙 -->

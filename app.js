@@ -125,7 +125,26 @@ const el = {
   fileRestore: document.getElementById('file-restore'),
   colorCanvas: document.getElementById('color-canvas'),
   btnWakeLock: document.getElementById('btn-wakelock'),
-  silentAudioDriver: document.getElementById('silent-audio-driver')
+  silentAudioDriver: document.getElementById('silent-audio-driver'),
+
+  // 플리만 보기 (감상 모드) 요소들
+  btnFocusMode: document.getElementById('btn-focus-mode'),
+  btnFocusModeBar: document.getElementById('btn-focus-mode-bar'),
+  focusOverlay: document.getElementById('focus-mode-overlay'),
+  btnCloseFocus: document.getElementById('btn-close-focus'),
+  focusPlName: document.getElementById('focus-pl-name'),
+  focusCarouselViewport: document.getElementById('focus-carousel-viewport'),
+  focusTrackList: document.getElementById('focus-track-list'),
+  btnFocusPlayPause: document.getElementById('btn-focus-play-pause'),
+  iconFocusPlayPause: document.getElementById('icon-focus-play-pause'),
+  btnFocusPrev: document.getElementById('btn-focus-prev'),
+  btnFocusNext: document.getElementById('btn-focus-next'),
+  btnFocusShuffle: document.getElementById('btn-focus-shuffle'),
+  btnFocusRepeat: document.getElementById('btn-focus-repeat'),
+  focusProgressBar: document.getElementById('focus-progress-bar'),
+  focusProgressFilled: document.getElementById('focus-progress-filled'),
+  focusTimeCurrent: document.getElementById('focus-time-current'),
+  focusTimeTotal: document.getElementById('focus-time-total')
 };
 
 /* ==================== 데이터 영속성 (LocalStorage) ==================== */
@@ -605,6 +624,10 @@ function playTrackByIndex(index) {
   el.progressFilled.style.width = '0%';
   el.timeCurrent.textContent = '0:00';
   el.timeTotal.textContent = '0:00';
+  if (el.focusProgressFilled) el.focusProgressFilled.style.width = '0%';
+  if (el.focusTimeCurrent) el.focusTimeCurrent.textContent = '0:00';
+  if (el.focusTimeTotal) el.focusTimeTotal.textContent = '0:00';
+
   appState.isPlaying = true;
   updatePlayPauseUI(true);
   setVisualizerState(true);
@@ -612,6 +635,10 @@ function playTrackByIndex(index) {
   extractAndApplyVideoColor(track.thumbnail, track.id);
   updateNowPlayingInfo(track);
   highlightActiveTrack();
+
+  if (isFocusModeOpen) {
+    updateFocusTrackListActive();
+  }
 
   if (el.playerPlaceholder) {
     el.playerPlaceholder.classList.add('hidden');
@@ -654,6 +681,134 @@ function playNextShuffledTrack() {
   playTrackByIndex(randomIdx);
 }
 
+/* ==================== 🌟 플리만 보기 (감상 모드) 기능 ==================== */
+let isFocusModeOpen = false;
+
+function openFocusMode() {
+  const currentPl = getCurrentPlaylist();
+  if (!currentPl || currentPl.tracks.length === 0) {
+    showStatusMsg('재생할 곡이 있는 플레이리스트를 먼저 선택해주세요.', 'error');
+    return;
+  }
+
+  isFocusModeOpen = true;
+  if (el.focusOverlay) el.focusOverlay.classList.remove('hidden');
+  if (el.focusPlName) el.focusPlName.textContent = currentPl.name;
+
+  renderFocusTrackList();
+  
+  setTimeout(() => {
+    centerActiveFocusTrack(false);
+  }, 60);
+
+  updatePlayPauseUI(appState.isPlaying);
+  updateRepeatUI();
+  updateShuffleUI();
+}
+
+function closeFocusMode() {
+  isFocusModeOpen = false;
+  if (el.focusOverlay) el.focusOverlay.classList.add('hidden');
+}
+
+function toggleFocusMode() {
+  if (isFocusModeOpen) {
+    closeFocusMode();
+  } else {
+    openFocusMode();
+  }
+}
+
+function renderFocusTrackList() {
+  const currentPl = getCurrentPlaylist();
+  if (!currentPl || !el.focusTrackList) return;
+
+  el.focusTrackList.innerHTML = '';
+
+  currentPl.tracks.forEach((track, idx) => {
+    const card = document.createElement('div');
+    const isActive = idx === appState.currentTrackIndex;
+    card.className = `focus-track-card ${isActive ? 'active' : ''}`;
+    card.dataset.index = idx;
+
+    card.innerHTML = `
+      <div class="focus-thumb-box">
+        <img class="focus-thumb-img" src="${track.thumbnail}" alt="${escapeHtml(track.title)}" onerror="this.src='https://i.ytimg.com/vi/${track.id}/hqdefault.jpg'">
+        ${isActive ? `
+          <div class="focus-playing-indicator">
+            <div class="focus-equalizer-waves">
+              <span class="focus-eq-bar"></span>
+              <span class="focus-eq-bar"></span>
+              <span class="focus-eq-bar"></span>
+            </div>
+            <span>NOW PLAYING</span>
+          </div>
+        ` : ''}
+      </div>
+      <div class="focus-track-meta">
+        <span class="focus-card-index">#${idx + 1}</span>
+        <h3 class="focus-card-title">${escapeHtml(track.title)}</h3>
+      </div>
+    `;
+
+    card.addEventListener('click', () => {
+      if (idx !== appState.currentTrackIndex) {
+        playTrackByIndex(idx);
+      }
+    });
+
+    el.focusTrackList.appendChild(card);
+  });
+}
+
+function updateFocusTrackListActive() {
+  if (!el.focusTrackList) return;
+  const cards = el.focusTrackList.querySelectorAll('.focus-track-card');
+  cards.forEach((card, idx) => {
+    const isActive = idx === appState.currentTrackIndex;
+    if (isActive) {
+      card.classList.add('active');
+      const thumbBox = card.querySelector('.focus-thumb-box');
+      if (thumbBox && !thumbBox.querySelector('.focus-playing-indicator')) {
+        const ind = document.createElement('div');
+        ind.className = 'focus-playing-indicator';
+        ind.innerHTML = `
+          <div class="focus-equalizer-waves">
+            <span class="focus-eq-bar"></span>
+            <span class="focus-eq-bar"></span>
+            <span class="focus-eq-bar"></span>
+          </div>
+          <span>NOW PLAYING</span>
+        `;
+        thumbBox.appendChild(ind);
+      }
+    } else {
+      card.classList.remove('active');
+      const ind = card.querySelector('.focus-playing-indicator');
+      if (ind) ind.remove();
+    }
+  });
+
+  centerActiveFocusTrack(true);
+}
+
+function centerActiveFocusTrack(smooth = true) {
+  if (!el.focusCarouselViewport || !el.focusTrackList) return;
+  const activeCard = el.focusTrackList.querySelector('.focus-track-card.active');
+  if (!activeCard) return;
+
+  const viewportHeight = el.focusCarouselViewport.clientHeight;
+  const cardTop = activeCard.offsetTop;
+  const cardHeight = activeCard.clientHeight;
+
+  const targetScrollTop = cardTop - (viewportHeight / 2) + (cardHeight / 2);
+
+  el.focusCarouselViewport.scrollTo({
+    top: Math.max(0, targetScrollTop),
+    behavior: smooth ? 'smooth' : 'auto'
+  });
+}
+
 /* ==================== 60fps 프로그레스 & 스와이프 탐색 ==================== */
 function startProgressTimer() {
   stopProgressTimer();
@@ -666,14 +821,19 @@ function startProgressTimer() {
       el.timeCurrent.textContent = formatTime(curTime);
       el.timeTotal.textContent = formatTime(duration);
 
+      if (el.focusTimeCurrent) el.focusTimeCurrent.textContent = formatTime(curTime);
+      if (el.focusTimeTotal) el.focusTimeTotal.textContent = formatTime(duration);
+
       if (duration > 0) {
         const percentage = (curTime / duration) * 100;
         el.progressFilled.style.width = `${percentage}%`;
+        if (el.focusProgressFilled) el.focusProgressFilled.style.width = `${percentage}%`;
       } else {
         el.progressFilled.style.width = '0%';
+        if (el.focusProgressFilled) el.focusProgressFilled.style.width = '0%';
       }
     } catch (e) {}
-  }, 350);
+  }, 250);
 }
 
 function stopProgressTimer() {
@@ -1094,6 +1254,7 @@ function updatePlayPauseUI(isPlaying) {
   const iconClass = isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play';
   if (el.iconPlayPause) el.iconPlayPause.className = iconClass;
   if (el.iconMobilePlayPause) el.iconMobilePlayPause.className = iconClass;
+  if (el.iconFocusPlayPause) el.iconFocusPlayPause.className = iconClass;
 }
 
 function updateRepeatUI() {
@@ -1122,12 +1283,17 @@ function updateRepeatUI() {
       el.mobileRepeatBadge.classList.toggle('hidden', !isOne);
     }
   }
+
+  if (el.btnFocusRepeat) {
+    el.btnFocusRepeat.classList.toggle('active', !isNone);
+  }
 }
 
 function updateShuffleUI() {
   const isShuffled = appState.settings.isShuffled;
   if (el.btnShuffle) el.btnShuffle.classList.toggle('active', isShuffled);
   if (el.btnMobileShuffle) el.btnMobileShuffle.classList.toggle('active', isShuffled);
+  if (el.btnFocusShuffle) el.btnFocusShuffle.classList.toggle('active', isShuffled);
 }
 
 function updateVolumeIcon(vol) {
@@ -1525,6 +1691,29 @@ function setupEventListeners() {
     });
   }
 
+  // 플리만 보기 (감상 모드) 이벤트
+  if (el.btnFocusMode) el.btnFocusMode.addEventListener('click', toggleFocusMode);
+  if (el.btnFocusModeBar) el.btnFocusModeBar.addEventListener('click', toggleFocusMode);
+  if (el.btnCloseFocus) el.btnCloseFocus.addEventListener('click', closeFocusMode);
+  if (el.btnFocusPlayPause) el.btnFocusPlayPause.addEventListener('click', togglePlayPause);
+  if (el.btnFocusPrev) el.btnFocusPrev.addEventListener('click', playPrevTrack);
+  if (el.btnFocusNext) el.btnFocusNext.addEventListener('click', playNextTrack);
+  if (el.btnFocusShuffle) el.btnFocusShuffle.addEventListener('click', toggleShuffle);
+  if (el.btnFocusRepeat) el.btnFocusRepeat.addEventListener('click', toggleRepeat);
+
+  if (el.focusProgressBar) {
+    el.focusProgressBar.addEventListener('click', (e) => {
+      if (!ytPlayer || !isPlayerReady) return;
+      const rect = el.focusProgressBar.getBoundingClientRect();
+      const offsetX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+      const duration = ytPlayer.getDuration() || 0;
+      if (duration > 0) {
+        const seekTime = (offsetX / rect.width) * duration;
+        ytPlayer.seekTo(seekTime, true);
+      }
+    });
+  }
+
   // 화면 꺼짐 방지 토글 버튼
   if (el.btnWakeLock) {
     el.btnWakeLock.addEventListener('click', toggleWakeLock);
@@ -1547,6 +1736,10 @@ function setupEventListeners() {
   });
 
   window.addEventListener('keydown', (e) => {
+    if (e.code === 'Escape' && isFocusModeOpen) {
+      closeFocusMode();
+      return;
+    }
     if (e.code === 'Space' && e.target.tagName !== 'INPUT') {
       e.preventDefault();
       togglePlayPause();
