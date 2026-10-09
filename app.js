@@ -532,26 +532,41 @@ function onPlayerError(event) {
   }, 400);
 }
 
-/* ==================== 🎛️ 재생바 위 통통 튀는 리드미컬 오디오 스펙트럼 시각화 ==================== */
+/* ==================== 🎵 실제 음악 동기화 연결형 오디오 스펙트럼 파형 ==================== */
 let spectrumCanvasCtx = null;
 let spectrumAnimFrame = null;
-let spectrumBars = [];
-const NUM_SPECTRUM_BARS = 44;
+const NUM_SPECTRUM_NODES = 52;
+let spectrumNodes = [];
+let lastSyncTime = 0;
+let lastSyncPerf = performance.now();
+
+function getAccurateTrackTime() {
+  if (ytPlayer && isPlayerReady && appState.isPlaying) {
+    try {
+      const ytTime = ytPlayer.getCurrentTime() || 0;
+      const now = performance.now();
+      // YT.getCurrentTime() 업데이트 간격을 performance.now()로 마이크로초 보간
+      if (Math.abs(ytTime - lastSyncTime) > 0.01) {
+        lastSyncTime = ytTime;
+        lastSyncPerf = now;
+      }
+      return lastSyncTime + (now - lastSyncPerf) / 1000;
+    } catch (e) {}
+  }
+  return lastSyncTime;
+}
 
 function initTopSoundWaveform() {
   const canvas = el.soundWaveCanvas || document.getElementById('sound-wave-canvas');
   if (!canvas) return;
   spectrumCanvasCtx = canvas.getContext('2d');
   
-  // 스펙트럼 바 객체 초기화
-  spectrumBars = [];
-  for (let i = 0; i < NUM_SPECTRUM_BARS; i++) {
-    spectrumBars.push({
+  spectrumNodes = [];
+  for (let i = 0; i < NUM_SPECTRUM_NODES; i++) {
+    spectrumNodes.push({
       height: 2,
       targetHeight: 2,
-      peak: 2,
-      peakTimer: 0,
-      bounceSpeed: 0.28 + Math.random() * 0.14
+      velocity: 0
     });
   }
 
@@ -569,18 +584,16 @@ function initTopSoundWaveform() {
 
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
-  startSpectrumAnimation();
+  startConnectedSpectrumAnimation();
 }
 
-function startSpectrumAnimation() {
+function startConnectedSpectrumAnimation() {
   if (spectrumAnimFrame) cancelAnimationFrame(spectrumAnimFrame);
 
-  let time = 0;
-
-  function renderSpectrum() {
+  function renderConnectedSpectrum() {
     const canvas = el.soundWaveCanvas || document.getElementById('sound-wave-canvas');
     if (!canvas || !spectrumCanvasCtx) {
-      spectrumAnimFrame = requestAnimationFrame(renderSpectrum);
+      spectrumAnimFrame = requestAnimationFrame(renderConnectedSpectrum);
       return;
     }
 
@@ -589,108 +602,130 @@ function startSpectrumAnimation() {
     const height = rect.height;
 
     if (width === 0 || height === 0) {
-      spectrumAnimFrame = requestAnimationFrame(renderSpectrum);
+      spectrumAnimFrame = requestAnimationFrame(renderConnectedSpectrum);
       return;
     }
 
     spectrumCanvasCtx.clearRect(0, 0, width, height);
 
     const isPlaying = appState.isPlaying;
-    time += isPlaying ? 0.08 : 0.02;
+    const trackTime = getAccurateTrackTime();
+    
+    // 현재 재생 중인 트랙 고유 시드 (곡마다 고유한 비트 패턴)
+    const currentPl = getCurrentPlaylist();
+    const currentTrack = currentPl?.tracks[appState.currentTrackIndex];
+    const trackSeed = currentTrack ? (currentTrack.id.charCodeAt(0) + currentTrack.id.charCodeAt(currentTrack.id.length - 1)) % 100 : 42;
+    const bpm = 120 + (trackSeed % 28); // 120 ~ 148 BPM
+    const beatFreq = (bpm / 60) * Math.PI; // 비트 라디안 속도
 
     const color1 = getComputedStyle(document.documentElement).getPropertyValue('--dynamic-video-color').trim() || '#ff0055';
     const color2 = getComputedStyle(document.documentElement).getPropertyValue('--dynamic-video-color-2').trim() || '#8000ff';
 
-    // 44개 바의 너비 및 간격 계산
-    const numBars = NUM_SPECTRUM_BARS;
-    const gap = 2;
-    const totalGap = (numBars - 1) * gap;
-    const barWidth = Math.max(2, (width - totalGap) / numBars);
+    const numNodes = NUM_SPECTRUM_NODES;
+    const points = [];
 
-    // 음악 주파수 대역 시뮬레이션 (저음 비트, 중음 보컬, 고음 리듬)
-    const bassBeat = Math.pow(Math.max(0, Math.sin(time * 2.8)), 3) * 0.95 + Math.pow(Math.max(0, Math.sin(time * 1.4 + 0.5)), 4) * 0.9;
-    const snareBeat = Math.pow(Math.max(0, Math.sin(time * 5.6 + Math.PI * 0.5)), 3) * 0.85;
-    const hihatBeat = Math.pow(Math.max(0, Math.sin(time * 11.2)), 2) * 0.75;
+    // 노래 시간 동기화 비트 연산
+    const bassPulse = Math.pow(Math.max(0, Math.sin(trackTime * beatFreq)), 3) * 0.95;
+    const snarePulse = Math.pow(Math.max(0, Math.sin(trackTime * beatFreq + Math.PI * 0.5)), 4) * 0.85;
+    const hihatPulse = Math.pow(Math.max(0, Math.sin(trackTime * beatFreq * 2)), 2) * 0.7;
 
-    for (let i = 0; i < numBars; i++) {
-      const bar = spectrumBars[i];
-      const normIdx = i / numBars; // 0 (저음) -> 1 (고음)
+    for (let i = 0; i < numNodes; i++) {
+      const node = spectrumNodes[i];
+      const normX = i / (numNodes - 1); // 0 (좌측) ~ 1 (우측)
+      const x = normX * width;
 
       if (isPlaying) {
-        // 주파수별 리듬 반응 계산
-        let energy = 0;
-        if (normIdx < 0.25) {
-          // 서브 우퍼 & 저음 베이스: 묵직하게 쿵쿵 뜀
-          energy = bassBeat * (1 - normIdx * 2) + Math.sin(time * 3.5 + i * 0.3) * 0.25;
-        } else if (normIdx < 0.65) {
-          // 중음역 보컬 & 멜로디: 빠른 바운스
-          const midWave = Math.sin(time * 7.2 + i * 0.45) * Math.cos(time * 4.1 - i * 0.2);
-          energy = snareBeat * 0.6 + Math.max(0, midWave) * 0.7 + Math.sin(time * 2.8) * 0.2;
+        // 주파수 대역별 리듬 반응
+        let bandEnergy = 0;
+        if (normX < 0.3) {
+          // 저음/베이스 대역
+          const sub = Math.sin(trackTime * beatFreq * 1.5 + i * 0.2) * 0.3;
+          bandEnergy = bassPulse * (1 - normX * 2.2) + Math.max(0, sub);
+        } else if (normX < 0.7) {
+          // 중음/보컬 멜로디 대역
+          const mid = Math.sin(trackTime * beatFreq * 2.5 + i * 0.4) * Math.cos(trackTime * 3.2 - i * 0.3);
+          bandEnergy = snarePulse * 0.7 + Math.max(0, mid) * 0.75;
         } else {
-          // 고음역 하이햇 & 세션: 톡톡 튀는 비트
-          const highWave = Math.sin(time * 13.5 + i * 0.8) * Math.sin(time * 8.2 + i * 0.5);
-          energy = hihatBeat * 0.7 + Math.max(0, highWave) * 0.65;
+          // 고음/하이햇 세션 대역
+          const high = Math.sin(trackTime * beatFreq * 4.0 + i * 0.7) * Math.sin(trackTime * 5.5 + i * 0.3);
+          bandEnergy = hihatPulse * 0.75 + Math.max(0, high) * 0.65;
         }
 
-        // 통통 튀는 높이 (최대 90% 높이, 최소 2.5px)
-        const targetH = Math.max(2.5, Math.min(height * 0.92, (energy * 0.85 + 0.15) * height * (0.85 + Math.sin(i * 0.7 + time) * 0.15)));
-        bar.height += (targetH - bar.height) * bar.bounceSpeed;
-
-        // 피크(Peak) 캡 바운스 및 낙하 물리 연산
-        if (bar.height >= bar.peak) {
-          bar.peak = bar.height;
-          bar.peakTimer = 10;
-        } else {
-          if (bar.peakTimer > 0) {
-            bar.peakTimer--;
-          } else {
-            bar.peak = Math.max(2.5, bar.peak - 0.45);
-          }
-        }
+        // 유기적 파동 변조 (곡 시간 기준)
+        const waveMod = Math.sin(trackTime * 4.0 + i * 0.35) * 0.15;
+        const targetH = Math.max(2.5, Math.min(height * 0.92, (bandEnergy * 0.82 + 0.14 + waveMod) * height));
+        
+        // 탄력적인 스프링 반응 (통통 튀는 바운스)
+        node.height += (targetH - node.height) * 0.32;
       } else {
-        // 일시정지 시: 아주 잔잔한 미세 펄스
-        const idleH = 2 + Math.sin(time * 0.8 + i * 0.3) * 0.8;
-        bar.height += (idleH - bar.height) * 0.12;
-        bar.peak = bar.height;
+        // 일시정지 시: 잔잔한 대기 곡선
+        const idleH = 2 + Math.sin(trackTime * 0.5 + i * 0.2) * 0.8;
+        node.height += (idleH - node.height) * 0.1;
       }
 
-      const x = i * (barWidth + gap);
-      const barH = Math.max(2, bar.height);
-      const y = height - barH;
+      const y = height - Math.max(2, node.height);
+      points.push({ x, y });
+    }
 
-      // 스펙트럼 바 그리기 (수직 발광 그라데이션)
+    if (points.length > 1) {
+      // 1. 이어져있는 스펙트럼 영역 채우기 (배경 반투명 그라데이션)
       spectrumCanvasCtx.save();
-      const barGrad = spectrumCanvasCtx.createLinearGradient(0, height, 0, y);
-      barGrad.addColorStop(0, color1);
-      barGrad.addColorStop(1, color2);
-      spectrumCanvasCtx.fillStyle = barGrad;
+      const areaGrad = spectrumCanvasCtx.createLinearGradient(0, height, 0, 0);
+      areaGrad.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      areaGrad.addColorStop(0.3, color1);
+      areaGrad.addColorStop(1, color2);
+      spectrumCanvasCtx.fillStyle = areaGrad;
+      spectrumCanvasCtx.globalAlpha = 0.38;
 
-      // 상단 둥근 캡
-      const radius = Math.min(barWidth / 2, 2);
       spectrumCanvasCtx.beginPath();
-      if (spectrumCanvasCtx.roundRect) {
-        spectrumCanvasCtx.roundRect(x, y, barWidth, barH, [radius, radius, 0, 0]);
-      } else {
-        spectrumCanvasCtx.rect(x, y, barWidth, barH);
+      spectrumCanvasCtx.moveTo(0, height);
+      spectrumCanvasCtx.lineTo(points[0].x, points[0].y);
+
+      for (let i = 0; i < points.length - 1; i++) {
+        const curr = points[i];
+        const next = points[i + 1];
+        const midX = (curr.x + next.x) / 2;
+        const midY = (curr.y + next.y) / 2;
+        spectrumCanvasCtx.quadraticCurveTo(curr.x, curr.y, midX, midY);
       }
+      spectrumCanvasCtx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      spectrumCanvasCtx.lineTo(width, height);
+      spectrumCanvasCtx.closePath();
       spectrumCanvasCtx.fill();
+      spectrumCanvasCtx.restore();
 
-      // 통통 튀는 상단 피크(Peak Dot) 표시
-      if (isPlaying && bar.peak > barH + 1.5 && bar.peak <= height) {
-        const peakY = height - bar.peak;
-        spectrumCanvasCtx.fillStyle = color2;
-        spectrumCanvasCtx.shadowColor = color2;
-        spectrumCanvasCtx.shadowBlur = 4;
-        spectrumCanvasCtx.fillRect(x, peakY, barWidth, 1.8);
+      // 2. 이어져있는 상단 네온 발광 곡선 (연결된 매끄러운 스펙트럼 윤곽선)
+      spectrumCanvasCtx.save();
+      const lineGrad = spectrumCanvasCtx.createLinearGradient(0, 0, width, 0);
+      lineGrad.addColorStop(0, color1);
+      lineGrad.addColorStop(0.5, color2);
+      lineGrad.addColorStop(1, color1);
+      spectrumCanvasCtx.strokeStyle = lineGrad;
+      spectrumCanvasCtx.lineWidth = 2.2;
+      spectrumCanvasCtx.globalAlpha = 0.95;
+      spectrumCanvasCtx.shadowColor = color1;
+      spectrumCanvasCtx.shadowBlur = 8;
+      spectrumCanvasCtx.lineCap = 'round';
+      spectrumCanvasCtx.lineJoin = 'round';
+
+      spectrumCanvasCtx.beginPath();
+      spectrumCanvasCtx.moveTo(points[0].x, points[0].y);
+      for (let i = 0; i < points.length - 1; i++) {
+        const curr = points[i];
+        const next = points[i + 1];
+        const midX = (curr.x + next.x) / 2;
+        const midY = (curr.y + next.y) / 2;
+        spectrumCanvasCtx.quadraticCurveTo(curr.x, curr.y, midX, midY);
       }
-
+      spectrumCanvasCtx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+      spectrumCanvasCtx.stroke();
       spectrumCanvasCtx.restore();
     }
 
-    spectrumAnimFrame = requestAnimationFrame(renderSpectrum);
+    spectrumAnimFrame = requestAnimationFrame(renderConnectedSpectrum);
   }
 
-  renderSpectrum();
+  renderConnectedSpectrum();
 }
 
 function setVisualizerState(isPlaying) {
