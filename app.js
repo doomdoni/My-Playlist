@@ -1,6 +1,6 @@
 /**
  * YouTube Playlist Web App
- * My Playlist - 모바일 완벽 최적화 유튜브 플레이어
+ * My Playlist - 완벽한 슬라이드 메뉴 및 유튜브 플레이어
  */
 
 const DEFAULT_DATA = {
@@ -43,7 +43,6 @@ const el = {
   sidebar: document.getElementById('sidebar'),
   sidebarOverlay: document.getElementById('sidebar-overlay'),
   btnOpenSidebar: document.getElementById('btn-open-sidebar'),
-  btnCloseSidebar: document.getElementById('btn-close-sidebar'),
   btnMobileToggleView: document.getElementById('btn-mobile-toggle-view'),
   iconMobileView: document.getElementById('icon-mobile-view'),
   contentBody: document.getElementById('content-body'),
@@ -72,6 +71,8 @@ const el = {
   playerPlaceholder: document.getElementById('player-placeholder'),
   placeholderText: document.getElementById('placeholder-text'),
   nowPlayingCard: document.getElementById('now-playing-card'),
+  
+  npPlaceholderIcon: document.getElementById('np-placeholder-icon'),
   npThumbnail: document.getElementById('np-thumbnail'),
   npTitle: document.getElementById('np-title'),
   npSubtitle: document.getElementById('np-subtitle'),
@@ -79,7 +80,8 @@ const el = {
   bottomPlayerBar: document.getElementById('bottom-player-bar'),
   topSoundWaveform: document.getElementById('top-sound-waveform'),
   
-  // 데스크탑 플레이어 바 요소
+  // 데스크탑 플레이어 바
+  desktopPlaceholderIcon: document.getElementById('desktop-placeholder-icon'),
   barThumb: document.getElementById('bar-thumb'),
   barTitle: document.getElementById('bar-title'),
   barArtist: document.getElementById('bar-artist'),
@@ -91,7 +93,8 @@ const el = {
   btnRepeat: document.getElementById('btn-repeat'),
   repeatBadge: document.getElementById('repeat-badge'),
   
-  // 모바일 전용 플레이어 바 요소
+  // 모바일 전용 플레이어 바
+  mobilePlaceholderIcon: document.getElementById('mobile-placeholder-icon'),
   mobileBarThumb: document.getElementById('mobile-bar-thumb'),
   mobileBarTitle: document.getElementById('mobile-bar-title'),
   mobileBarArtist: document.getElementById('mobile-bar-artist'),
@@ -741,8 +744,7 @@ function renderPlaylists() {
     `;
     li.addEventListener('click', () => {
       selectPlaylist(pl.id);
-      // 모바일에서는 사이드바 자동 닫기
-      closeMobileSidebar();
+      closeSidebar();
     });
     el.playlistList.appendChild(li);
   });
@@ -825,23 +827,45 @@ function highlightActiveTrack() {
 }
 
 function updateNowPlayingInfo(track) {
-  if (!track) return;
+  if (!track) {
+    if (el.npThumbnail) el.npThumbnail.classList.add('hidden');
+    if (el.npPlaceholderIcon) el.npPlaceholderIcon.classList.remove('hidden');
+    if (el.barThumb) el.barThumb.classList.add('hidden');
+    if (el.desktopPlaceholderIcon) el.desktopPlaceholderIcon.classList.remove('hidden');
+    if (el.mobileBarThumb) el.mobileBarThumb.classList.add('hidden');
+    if (el.mobilePlaceholderIcon) el.mobilePlaceholderIcon.classList.remove('hidden');
+    return;
+  }
+
   el.npTitle.textContent = track.title;
   el.npSubtitle.textContent = '재생 중';
-  el.npThumbnail.src = track.thumbnail;
+  
+  if (el.npThumbnail) {
+    el.npThumbnail.src = track.thumbnail;
+    el.npThumbnail.classList.remove('hidden');
+  }
+  if (el.npPlaceholderIcon) el.npPlaceholderIcon.classList.add('hidden');
 
   const currentPl = getCurrentPlaylist();
   const plName = currentPl ? currentPl.name : 'YouTube Playlist';
 
-  // 데스크탑
+  // 데스크탑 하단 바
   el.barTitle.textContent = track.title;
   el.barArtist.textContent = plName;
-  el.barThumb.src = track.thumbnail;
+  if (el.barThumb) {
+    el.barThumb.src = track.thumbnail;
+    el.barThumb.classList.remove('hidden');
+  }
+  if (el.desktopPlaceholderIcon) el.desktopPlaceholderIcon.classList.add('hidden');
 
-  // 모바일
+  // 모바일 하단 바
   if (el.mobileBarTitle) el.mobileBarTitle.textContent = track.title;
   if (el.mobileBarArtist) el.mobileBarArtist.textContent = plName;
-  if (el.mobileBarThumb) el.mobileBarThumb.src = track.thumbnail;
+  if (el.mobileBarThumb) {
+    el.mobileBarThumb.src = track.thumbnail;
+    el.mobileBarThumb.classList.remove('hidden');
+  }
+  if (el.mobilePlaceholderIcon) el.mobilePlaceholderIcon.classList.add('hidden');
 }
 
 function updatePlayPauseUI(isPlaying) {
@@ -855,7 +879,6 @@ function updateRepeatUI() {
   const isNone = mode === 'none';
   const isOne = mode === 'one';
 
-  // 데스크탑
   if (el.btnRepeat) {
     if (isNone) {
       el.btnRepeat.classList.remove('active');
@@ -868,7 +891,6 @@ function updateRepeatUI() {
     }
   }
 
-  // 모바일
   if (el.btnMobileRepeat) {
     if (isNone) {
       el.btnMobileRepeat.classList.remove('active');
@@ -914,18 +936,27 @@ function escapeHtml(str) {
             .replace(/'/g, '&#039;');
 }
 
-/* ==================== 모바일 사이드바 & 뷰 토글 ==================== */
-function openMobileSidebar() {
+/* ==================== 사이드바 토글 (깜빡임/찌그러짐 없는 완벽 슬라이드) ==================== */
+function toggleSidebar() {
+  const isOpen = el.sidebar.classList.contains('open');
+  if (isOpen) {
+    closeSidebar();
+  } else {
+    openSidebar();
+  }
+}
+
+function openSidebar() {
   el.sidebar.classList.add('open');
   el.sidebarOverlay.classList.add('active');
 }
 
-function closeMobileSidebar() {
+function closeSidebar() {
   el.sidebar.classList.remove('open');
   el.sidebarOverlay.classList.remove('active');
 }
 
-let mobileViewMode = 'all'; // 'all' | 'video' | 'tracks'
+let mobileViewMode = 'all';
 function toggleMobileView() {
   if (mobileViewMode === 'all' || mobileViewMode === 'tracks') {
     mobileViewMode = 'video';
@@ -963,7 +994,7 @@ function createNewPlaylist(defaultName) {
   appState.playlists.push(newPl);
   selectPlaylist(newPl.id);
   saveState();
-  closeMobileSidebar();
+  closeSidebar();
   return newPl;
 }
 
@@ -1068,6 +1099,7 @@ function deleteTrack(index) {
       el.barArtist.textContent = 'YouTube Player';
       if (el.mobileBarTitle) el.mobileBarTitle.textContent = '곡을 선택해주세요';
       if (el.mobileBarArtist) el.mobileBarArtist.textContent = 'YouTube Player';
+      updateNowPlayingInfo(null);
     }
   } else if (appState.currentTrackIndex > index) {
     appState.currentTrackIndex--;
@@ -1132,10 +1164,8 @@ function setupEventListeners() {
     });
   }
 
-  // 모바일 사이드바 토글
-  if (el.btnOpenSidebar) el.btnOpenSidebar.addEventListener('click', openMobileSidebar);
-  if (el.btnCloseSidebar) el.btnCloseSidebar.addEventListener('click', closeMobileSidebar);
-  if (el.sidebarOverlay) el.sidebarOverlay.addEventListener('click', closeMobileSidebar);
+  if (el.btnOpenSidebar) el.btnOpenSidebar.addEventListener('click', toggleSidebar);
+  if (el.sidebarOverlay) el.sidebarOverlay.addEventListener('click', closeSidebar);
   if (el.btnMobileToggleView) el.btnMobileToggleView.addEventListener('click', toggleMobileView);
 
   el.btnCreatePlaylist.addEventListener('click', () => createNewPlaylist());
@@ -1151,7 +1181,6 @@ function setupEventListeners() {
     addTrackFromUrl(url);
   });
 
-  // 재생 / 일시정지 (데스크탑 & 모바일 통합)
   const togglePlayPause = () => {
     if (!ytPlayer || !isPlayerReady) return;
     if (appState.currentTrackIndex === -1) {
@@ -1174,13 +1203,11 @@ function setupEventListeners() {
   el.btnPlayPause.addEventListener('click', togglePlayPause);
   if (el.btnMobilePlayPause) el.btnMobilePlayPause.addEventListener('click', togglePlayPause);
 
-  // 이전/다음 곡
   el.btnPrev.addEventListener('click', playPrevTrack);
   el.btnNext.addEventListener('click', playNextTrack);
   if (el.btnMobilePrev) el.btnMobilePrev.addEventListener('click', playPrevTrack);
   if (el.btnMobileNext) el.btnMobileNext.addEventListener('click', playNextTrack);
 
-  // 셔플 토글
   const toggleShuffle = () => {
     appState.settings.isShuffled = !appState.settings.isShuffled;
     updateShuffleUI();
@@ -1189,7 +1216,6 @@ function setupEventListeners() {
   el.btnShuffle.addEventListener('click', toggleShuffle);
   if (el.btnMobileShuffle) el.btnMobileShuffle.addEventListener('click', toggleShuffle);
 
-  // 반복 모드 토글
   const toggleRepeat = () => {
     const modes = ['all', 'one', 'none'];
     const currentIdx = modes.indexOf(appState.settings.repeatMode);
@@ -1273,6 +1299,7 @@ function init() {
   renderTracks();
   updateRepeatUI();
   updateShuffleUI();
+  updateNowPlayingInfo(null);
   
   if (!appState.settings.isVideoVisible) {
     el.videoWrapper.classList.add('minimized');

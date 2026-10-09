@@ -54,7 +54,7 @@ body {
   color: var(--text-main);
   overflow: hidden;
   height: 100vh;
-  height: 100dvh; /* 모바일 동적 뷰포트 대응 */
+  height: 100dvh;
 }
 
 /* 프로토콜 경고 배너 */
@@ -91,19 +91,49 @@ body {
   display: flex;
 }
 
-/* 전체 앱 레이아웃 */
+.hidden {
+  display: none !important;
+}
+
+/* ==================== 전체 앱 레이아웃 ==================== */
 .app-container {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 1fr;
   grid-template-rows: 1fr 96px;
   height: 100vh;
   height: 100dvh;
   width: 100vw;
   overflow: hidden;
+  position: relative;
 }
 
-/* ==================== 사이드바 & 로고 ==================== */
+/* ==================== 사이드바 (완벽한 오프캔버스 슬라이드) ==================== */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 250;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.sidebar-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 280px;
+  height: 100vh;
+  height: 100dvh;
   background-color: var(--bg-sidebar);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -111,7 +141,15 @@ body {
   padding: 20px 16px;
   gap: 18px;
   overflow: hidden;
-  z-index: 200;
+  z-index: 300;
+  transform: translateX(-100%);
+  transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.7);
+  will-change: transform;
+}
+
+.sidebar.open {
+  transform: translateX(0);
 }
 
 .sidebar-top-header {
@@ -304,7 +342,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
-  padding: 24px 28px 16px 28px;
+  padding: 20px 32px 16px 32px;
   background: radial-gradient(circle at 80% 15%, rgba(124, 77, 255, 0.08) 0%, transparent 60%),
               radial-gradient(circle at 15% 85%, var(--dynamic-video-glow), transparent 50%),
               var(--bg-main);
@@ -312,11 +350,40 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
+/* 상단 네비게이션 바 */
+.top-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.nav-menu-btn {
+  color: var(--text-main);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-color);
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.nav-menu-btn:hover {
+  background-color: var(--bg-card-hover);
+  border-color: var(--dynamic-video-color);
+}
+
 .top-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 
 .header-info {
@@ -381,7 +448,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   color: var(--text-main);
-  font-size: 16px; /* iOS 자동 줌 방지 */
+  font-size: 16px;
   outline: none;
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
@@ -410,7 +477,7 @@ body {
 .content-body {
   display: grid;
   grid-template-columns: 1.15fr 0.85fr;
-  gap: 20px;
+  gap: 24px;
   flex: 1;
   min-height: 0;
 }
@@ -605,11 +672,7 @@ body {
   opacity: 0.5;
 }
 
-.hidden {
-  display: none !important;
-}
-
-/* ==================== 플레이어 뷰 섹션 ==================== */
+/* ==================== 플레이어 뷰 섹션 & 썸네일 플레이스홀더 ==================== */
 .player-view-section {
   display: flex;
   flex-direction: column;
@@ -670,12 +733,34 @@ body {
   min-width: 0;
 }
 
-.np-thumbnail-wrapper img {
+.np-thumbnail-wrapper {
+  position: relative;
   width: 64px;
   height: 48px;
   border-radius: var(--radius-sm);
-  object-fit: cover;
+  overflow: hidden;
   flex-shrink: 0;
+  background-color: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thumb-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--text-muted);
+  opacity: 0.5;
+  font-size: 1.2rem;
+}
+
+.np-thumbnail-wrapper img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .np-details {
@@ -720,12 +805,30 @@ body {
   min-width: 0;
 }
 
-.bar-now-playing img {
+.desktop-thumb-wrapper,
+.mobile-thumb-wrapper {
   width: 48px;
   height: 36px;
   border-radius: var(--radius-sm);
-  object-fit: cover;
+  background-color: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   flex-shrink: 0;
+}
+
+.thumb-placeholder-sm {
+  color: var(--text-muted);
+  opacity: 0.45;
+  font-size: 1rem;
+}
+
+.bar-now-playing img,
+.mobile-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .bar-info {
@@ -1060,7 +1163,7 @@ body {
   gap: 4px;
 }
 
-/* ==================== 📱 모바일 (스마트폰 & 태블릿) 완벽 최적화 ==================== */
+/* ==================== 📱 모바일 최적화 ==================== */
 @media (max-width: 820px) {
   .mobile-only {
     display: flex !important;
@@ -1069,70 +1172,23 @@ body {
     display: none !important;
   }
 
-  /* 앱 그리드 레이아웃: 1열 전체 + 모바일 2단 플레이어 바 */
-  .app-container {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
-  }
-
-  /* 모바일 네비게이션 헤더 */
-  .mobile-nav-bar {
-    display: flex;
-    align-items: center;
+  .top-nav-bar {
     justify-content: space-between;
-    padding: 10px 14px;
+    margin: -8px -6px 14px -6px;
+    padding: 8px 12px;
     background-color: var(--bg-sidebar);
     border-bottom: 1px solid var(--border-color);
-    margin: -16px -16px 16px -16px;
     position: sticky;
     top: -16px;
     z-index: 50;
   }
 
-  .mobile-brand {
+  .nav-brand {
     font-family: 'Montserrat', sans-serif;
     font-size: 1.15rem;
     font-weight: 900;
   }
 
-  /* 모바일 사이드바 (슬라이드 오버레이 서랍) */
-  .sidebar-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background-color: rgba(0, 0, 0, 0.65);
-    backdrop-filter: blur(4px);
-    z-index: 250;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.25s ease;
-  }
-
-  .sidebar-overlay.active {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 280px;
-    height: 100vh;
-    height: 100dvh;
-    transform: translateX(-100%);
-    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.6);
-    z-index: 300;
-  }
-
-  .sidebar.open {
-    transform: translateX(0);
-  }
-
-  /* 메인 콘텐츠 패딩 축소 */
   .main-content {
     padding: 16px 14px;
   }
@@ -1155,7 +1211,6 @@ body {
     gap: 16px;
   }
 
-  /* 모바일 화면 토글 모드 */
   .content-body.mode-video .tracks-section {
     display: none;
   }
@@ -1163,7 +1218,6 @@ body {
     display: none;
   }
 
-  /* 모바일 하단 플레이어 바 2단 콤팩트 레이아웃 */
   .bottom-player-bar {
     grid-template-columns: 1fr;
     padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 10px)) 14px;
@@ -1185,14 +1239,6 @@ body {
     gap: 10px;
     min-width: 0;
     flex: 1;
-  }
-
-  .mobile-thumb {
-    width: 44px;
-    height: 33px;
-    border-radius: 4px;
-    object-fit: cover;
-    flex-shrink: 0;
   }
 
   .mobile-text {
