@@ -1471,7 +1471,11 @@ function reorderTracks(fromIndex, toIndex) {
     appState.currentTrackIndex++;
   }
 
-  saveState();
+  if (isCloudPlaylist(currentPl.id)) {
+    scheduleCloudPush();
+  } else {
+    saveState();
+  }
   renderTracks();
 }
 
@@ -2188,9 +2192,61 @@ function serializeSyncPayload() {
   });
 }
 
-// 클라우드 업로드 (pastes.dev 기본, dpaste.com 폴백)
-async function uploadSyncPayloadToCloud(jsonStr) {
-  // 1순위: pastes.dev
+const SYNC_KV_APP_KEY = 'yt_playlist_sync_v2';
+
+function generateCleanRoomCode() {
+  const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+function stringToBase64Url(str) {
+  try {
+    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
+      return String.fromCharCode('0x' + p1);
+    })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch (e) {
+    return btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+}
+
+function base64UrlToString(b64url) {
+  let b64 = (b64url || '').replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) {
+    b64 += '=';
+  }
+  try {
+    return decodeURIComponent(Array.prototype.map.call(atob(b64), (c) => {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+  } catch (e) {
+    return decodeURIComponent(escape(atob(b64)));
+  }
+}
+
+// 클라우드 업로드 (지정된 roomCode에 덮어쓰기 저장 -> 코드 영구 불변!)
+async function uploadSyncPayloadToCloud(jsonStr, targetRoomCode = null) {
+  const roomCode = targetRoomCode || ('PL-' + generateCleanRoomCode());
+  const b64Payload = stringToBase64Url(jsonStr);
+
+  // 1순위: 영구 In-Place KV 저장소 (방 코드 고정 지원)
+  try {
+    const url = `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${SYNC_KV_APP_KEY}/${encodeURIComponent(roomCode)}/${encodeURIComponent(b64Payload)}`;
+    const res = await fetch(url, { method: 'POST' });
+    if (res.ok) {
+      const text = await res.text();
+      if (text.includes('true') || text.includes('True')) {
+        return roomCode;
+      }
+    }
+  } catch (e) {
+    console.warn('KV store upload error, trying fallback:', e);
+  }
+
+  // 2순위: pastes.dev 폴백
   try {
     const res = await fetch('https://api.pastes.dev/post', {
       method: 'POST',
@@ -2200,14 +2256,14 @@ async function uploadSyncPayloadToCloud(jsonStr) {
     if (res.ok) {
       const data = await res.json();
       if (data && data.key) {
-        return 'PL-' + data.key;
+        return targetRoomCode || ('PL-' + data.key);
       }
     }
   } catch (e) {
     console.warn('pastes.dev upload error, trying dpaste fallback:', e);
   }
 
-  // 2순위: dpaste.com 폴백
+  // 3순위: dpaste.com 폴백
   try {
     const formData = new URLSearchParams();
     formData.append('content', jsonStr);
@@ -2225,7 +2281,7 @@ async function uploadSyncPayloadToCloud(jsonStr) {
       const parts = trimmed.split('/');
       const key = parts[parts.length - 1] || parts[parts.length - 2];
       if (key) {
-        return 'DP-' + key;
+        return targetRoomCode || ('DP-' + key);
       }
     }
   } catch (e) {
@@ -2255,40 +2311,55 @@ async function downloadSyncPayloadFromCloud(rawCode) {
     cleanCode = 'DP-' + cleanCode.replace('https://dpaste.com/', '').replace('.txt', '').trim();
   }
 
+  // 1. In-Place KV 저장소 우선 조회 (대소문자 유연 지원)
+  const candidateKeys = [
+    cleanCode,
+    cleanCode.toUpperCase(),
+    cleanCode.startsWith('PL-') ? cleanCode.slice(3) : 'PL-' + cleanCode,
+    (cleanCode.startsWith('PL-') ? cleanCode.slice(3) : 'PL-' + cleanCode).toUpperCase()
+  ];
+
+  for (const cKey of candidateKeys) {
+    try {
+      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/${SYNC_KV_APP_KEY}/${encodeURIComponent(cKey)}`);
+      if (res.ok) {
+        const rawText = await res.text();
+        const b64Data = (rawText || '').trim().replace(/^"|"$/g, '');
+        if (b64Data && b64Data !== 'null' && b64Data.length > 5) {
+          const decodedJson = base64UrlToString(b64Data);
+          const parsed = JSON.parse(decodedJson);
+          return { parsed, rawKey: cKey };
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 2. Legacy / Fallback (pastes.dev & dpaste)
   const isDpaste = /^DP-/i.test(cleanCode);
   const key = cleanCode.replace(/^(PL|DP)-/i, '').trim();
 
-  if (!key) throw new Error('올바르지 않은 동기화 코드 형식입니다.');
-
   let textData = null;
-
   if (isDpaste) {
     try {
       const res = await fetch(`https://dpaste.com/${key}.txt`);
       if (res.ok) textData = await res.text();
     } catch (e) {}
   } else {
-    // pastes.dev 우선 시도
     try {
       const res = await fetch(`https://api.pastes.dev/${key}`);
-      if (res.ok) {
-        textData = await res.text();
-      }
+      if (res.ok) textData = await res.text();
     } catch (e) {}
 
-    // 안되면 dpaste 시도
     if (!textData) {
       try {
         const res = await fetch(`https://dpaste.com/${key}.txt`);
-        if (res.ok) {
-          textData = await res.text();
-        }
+        if (res.ok) textData = await res.text();
       } catch (e) {}
     }
   }
 
   if (!textData) {
-    throw new Error('동기화 코드를 찾을 수 없습니다. 대소문자를 정확히 확인해주세요.');
+    throw new Error('동기화 코드를 찾을 수 없습니다. 대소문자를 다시 확인해주세요.');
   }
 
   const parsed = JSON.parse(textData);
@@ -2303,7 +2374,7 @@ async function createSyncRoom() {
     el.btnCreateSyncRoom.disabled = true;
     el.btnCreateSyncRoom.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 코드 생성 중...';
   }
-  showSyncStatus('클라우드 동기화 코드를 안전하게 발급받고 있습니다...', 'info', 0);
+  showSyncStatus('고정 클라우드 동기화 코드를 안전하게 발급받고 있습니다...', 'info', 0);
 
   try {
     // 만약 클라우드 플레이리스트가 비어있다면 현재 로컬 플레이리스트를 복사하여 초기 클라우드 플리로 설정
@@ -2334,7 +2405,7 @@ async function createSyncRoom() {
     updateSyncUI();
     renderPlaylists();
     startCloudSyncPolling();
-    showSyncStatus(`동기화 코드가 발급되었습니다: ${roomCode}`, 'success', 5000);
+    showSyncStatus(`고정 동기화 코드가 발급되었습니다: ${roomCode}`, 'success', 5000);
   } catch (err) {
     console.error('Create sync room error:', err);
     showSyncStatus('동기화 코드 생성 실패: ' + err.message, 'error', 5000);
@@ -2418,9 +2489,10 @@ function scheduleCloudPush() {
   if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
   pushDebounceTimer = setTimeout(() => {
     pushStateToCloud(false);
-  }, 1500);
+  }, 1200);
 }
 
+// 💡 곡 추가/삭제 시에도 방 코드는 절대 변경되지 않고 activeSyncRoomId에 덮어쓰기 저장!
 async function pushStateToCloud(showToast = false) {
   if (!activeSyncRoomId || isSyncingNow) return;
   isSyncingNow = true;
@@ -2431,14 +2503,11 @@ async function pushStateToCloud(showToast = false) {
 
   try {
     const jsonPayload = serializeSyncPayload();
-    const newRoomCode = await uploadSyncPayloadToCloud(jsonPayload);
+    // activeSyncRoomId를 전달하여 동일한 방 코드에 덮어쓰기 저장!
+    await uploadSyncPayloadToCloud(jsonPayload, activeSyncRoomId);
     
-    if (newRoomCode) {
-      activeSyncRoomId = newRoomCode;
-      localStorage.setItem(SYNC_STORAGE_KEY, activeSyncRoomId);
-      lastSyncedTimestamp = Date.now();
-      updateSyncUI();
-    }
+    lastSyncedTimestamp = Date.now();
+    updateSyncUI();
 
     if (showToast) {
       showSyncStatus('클라우드에 최신 데이터가 성공적으로 반영되었습니다!', 'success', 3000);
