@@ -1234,32 +1234,50 @@ body {
   .top-nav-bar {
     justify-content: space-between;
     margin: -14px -14px 12px -14px;
-    padding: max(10px, env(safe-area-inset-top, 10px)) 16px 10px 16px;
-    background: rgba(19, 20, 28, 0.92);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    padding: max(8px, env(safe-area-inset-top, 8px)) 12px 8px 12px;
+    background: rgba(19, 20, 28, 0.95);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
     border-bottom: 1px solid var(--border-color);
     position: sticky;
     top: 0;
-    z-index: 50;
+    z-index: 100;
+  }
+
+  .top-nav-left {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
 
   .nav-brand {
     font-family: 'Montserrat', 'Pretendard', sans-serif;
-    font-size: 1.18rem;
+    font-size: 1.05rem;
     font-weight: 900;
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
   }
 
   .nav-menu-btn,
+  .nav-wakelock-btn,
+  .nav-focus-btn,
   .nav-view-btn {
-    width: 38px;
-    height: 38px;
-    font-size: 1.1rem;
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
     border-radius: var(--radius-md);
-    background-color: rgba(255, 255, 255, 0.06);
+    background-color: rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nav-focus-btn.active,
+  #btn-mobile-focus.active {
+    color: var(--primary);
+    border-color: var(--primary);
+    background-color: rgba(255, 0, 85, 0.15);
   }
 
   .main-content {

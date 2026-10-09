@@ -130,6 +130,7 @@ const el = {
   // 플리만 보기 (감상 모드) 요소들
   btnFocusMode: document.getElementById('btn-focus-mode'),
   btnFocusModeBar: document.getElementById('btn-focus-mode-bar'),
+  btnMobileFocus: document.getElementById('btn-mobile-focus'),
   focusOverlay: document.getElementById('focus-mode-overlay'),
   btnCloseFocus: document.getElementById('btn-close-focus'),
   focusPlName: document.getElementById('focus-pl-name'),
@@ -685,21 +686,34 @@ function playNextShuffledTrack() {
 let isFocusModeOpen = false;
 
 function openFocusMode() {
-  const currentPl = getCurrentPlaylist();
+  let currentPl = getCurrentPlaylist();
   if (!currentPl || currentPl.tracks.length === 0) {
-    showStatusMsg('재생할 곡이 있는 플레이리스트를 먼저 선택해주세요.', 'error');
+    if (appState.playlists.length > 0 && appState.playlists[0].tracks.length > 0) {
+      selectPlaylist(appState.playlists[0].id);
+      currentPl = getCurrentPlaylist();
+    }
+  }
+
+  if (!currentPl || currentPl.tracks.length === 0) {
+    showStatusMsg('재생할 노래가 있는 플레이리스트를 먼저 생성하거나 노래를 추가해주세요.', 'error');
     return;
+  }
+
+  if (appState.currentTrackIndex === -1 && currentPl.tracks.length > 0) {
+    playTrackByIndex(0);
   }
 
   isFocusModeOpen = true;
   if (el.focusOverlay) el.focusOverlay.classList.remove('hidden');
   if (el.focusPlName) el.focusPlName.textContent = currentPl.name;
+  if (el.btnFocusMode) el.btnFocusMode.classList.add('active');
+  if (el.btnMobileFocus) el.btnMobileFocus.classList.add('active');
 
   renderFocusTrackList();
   
   setTimeout(() => {
     centerActiveFocusTrack(false);
-  }, 60);
+  }, 80);
 
   updatePlayPauseUI(appState.isPlaying);
   updateRepeatUI();
@@ -709,6 +723,8 @@ function openFocusMode() {
 function closeFocusMode() {
   isFocusModeOpen = false;
   if (el.focusOverlay) el.focusOverlay.classList.add('hidden');
+  if (el.btnFocusMode) el.btnFocusMode.classList.remove('active');
+  if (el.btnMobileFocus) el.btnMobileFocus.classList.remove('active');
 }
 
 function toggleFocusMode() {
@@ -751,10 +767,17 @@ function renderFocusTrackList() {
       </div>
     `;
 
-    card.addEventListener('click', () => {
+    const handleSelect = (e) => {
+      e.stopPropagation();
       if (idx !== appState.currentTrackIndex) {
         playTrackByIndex(idx);
       }
+    };
+
+    card.addEventListener('click', handleSelect);
+    card.addEventListener('touchend', (e) => {
+      // Prevent double trigger on mobile
+      handleSelect(e);
     });
 
     el.focusTrackList.appendChild(card);
@@ -797,15 +820,17 @@ function centerActiveFocusTrack(smooth = true) {
   const activeCard = el.focusTrackList.querySelector('.focus-track-card.active');
   if (!activeCard) return;
 
-  const viewportHeight = el.focusCarouselViewport.clientHeight;
-  const cardTop = activeCard.offsetTop;
-  const cardHeight = activeCard.clientHeight;
+  requestAnimationFrame(() => {
+    const viewportHeight = el.focusCarouselViewport.clientHeight;
+    const cardTop = activeCard.offsetTop;
+    const cardHeight = activeCard.clientHeight;
 
-  const targetScrollTop = cardTop - (viewportHeight / 2) + (cardHeight / 2);
+    const targetScrollTop = cardTop - (viewportHeight / 2) + (cardHeight / 2);
 
-  el.focusCarouselViewport.scrollTo({
-    top: Math.max(0, targetScrollTop),
-    behavior: smooth ? 'smooth' : 'auto'
+    el.focusCarouselViewport.scrollTo({
+      top: Math.max(0, targetScrollTop),
+      behavior: smooth ? 'smooth' : 'auto'
+    });
   });
 }
 
@@ -1694,6 +1719,7 @@ function setupEventListeners() {
   // 플리만 보기 (감상 모드) 이벤트
   if (el.btnFocusMode) el.btnFocusMode.addEventListener('click', toggleFocusMode);
   if (el.btnFocusModeBar) el.btnFocusModeBar.addEventListener('click', toggleFocusMode);
+  if (el.btnMobileFocus) el.btnMobileFocus.addEventListener('click', toggleFocusMode);
   if (el.btnCloseFocus) el.btnCloseFocus.addEventListener('click', closeFocusMode);
   if (el.btnFocusPlayPause) el.btnFocusPlayPause.addEventListener('click', togglePlayPause);
   if (el.btnFocusPrev) el.btnFocusPrev.addEventListener('click', playPrevTrack);
@@ -1801,17 +1827,27 @@ function setupMobileGestures() {
   }
 
   // 3. 화면 왼쪽 끝에서 오른쪽으로 스와이프 시 사이드바 열기
+  let edgeStartX = 0;
+  let isEdgeSwiping = false;
+
   window.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 1 && e.touches[0].clientX < 25) {
-      const startX = e.touches[0].clientX;
-      const onEdgeMove = (moveEvt) => {
-        if (moveEvt.touches.length === 1 && moveEvt.touches[0].clientX - startX > 60) {
-          openSidebar();
-          window.removeEventListener('touchmove', onEdgeMove);
-        }
-      };
-      window.addEventListener('touchmove', onEdgeMove, { passive: true, once: true });
+    if (e.touches.length === 1 && e.touches[0].clientX < 30) {
+      edgeStartX = e.touches[0].clientX;
+      isEdgeSwiping = true;
     }
+  }, { passive: true });
+
+  window.addEventListener('touchmove', (e) => {
+    if (isEdgeSwiping && e.touches.length === 1) {
+      if (e.touches[0].clientX - edgeStartX > 50) {
+        openSidebar();
+        isEdgeSwiping = false;
+      }
+    }
+  }, { passive: true });
+
+  window.addEventListener('touchend', () => {
+    isEdgeSwiping = false;
   }, { passive: true });
 }
 
