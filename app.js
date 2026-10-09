@@ -1993,7 +1993,7 @@ async function addTrackFromUrl(url) {
 
     currentPl.tracks.push(newTrack);
     
-    if (isCloudPlaylist(currentPl.id)) {
+    if (isCloudPlaylist(currentPl.id) || activeSyncRoomId) {
       scheduleCloudPush();
     } else {
       saveState();
@@ -2025,7 +2025,7 @@ function deleteTrack(index) {
 
   currentPl.tracks.splice(index, 1);
 
-  if (isCloudPlaylist(currentPl.id)) {
+  if (isCloudPlaylist(currentPl.id) || activeSyncRoomId) {
     scheduleCloudPush();
   } else {
     saveState();
@@ -2192,7 +2192,8 @@ function serializeSyncPayload() {
   });
 }
 
-const SYNC_KV_APP_KEY = 'yt_playlist_sync_v2';
+const SYNC_KV_APP_KEY = '6b24tpc8';
+let lastSyncedPasteKey = null;
 
 function generateCleanRoomCode() {
   const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -2203,50 +2204,11 @@ function generateCleanRoomCode() {
   return code;
 }
 
-function stringToBase64Url(str) {
-  try {
-    return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (_, p1) => {
-      return String.fromCharCode('0x' + p1);
-    })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  } catch (e) {
-    return btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
-}
-
-function base64UrlToString(b64url) {
-  let b64 = (b64url || '').replace(/-/g, '+').replace(/_/g, '/');
-  while (b64.length % 4) {
-    b64 += '=';
-  }
-  try {
-    return decodeURIComponent(Array.prototype.map.call(atob(b64), (c) => {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-    }).join(''));
-  } catch (e) {
-    return decodeURIComponent(escape(atob(b64)));
-  }
-}
-
-// 클라우드 업로드 (지정된 roomCode에 덮어쓰기 저장 -> 코드 영구 불변!)
+// 클라우드 업로드: 1. 전체 JSON을 pastes.dev/dpaste에 업로드 -> 2. 고정된 방 코드에 pasteKey 포인터 저장!
 async function uploadSyncPayloadToCloud(jsonStr, targetRoomCode = null) {
-  const roomCode = targetRoomCode || ('PL-' + generateCleanRoomCode());
-  const b64Payload = stringToBase64Url(jsonStr);
+  let pasteKey = null;
 
-  // 1순위: 영구 In-Place KV 저장소 (방 코드 고정 지원)
-  try {
-    const url = `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${SYNC_KV_APP_KEY}/${encodeURIComponent(roomCode)}/${encodeURIComponent(b64Payload)}`;
-    const res = await fetch(url, { method: 'POST' });
-    if (res.ok) {
-      const text = await res.text();
-      if (text.includes('true') || text.includes('True')) {
-        return roomCode;
-      }
-    }
-  } catch (e) {
-    console.warn('KV store upload error, trying fallback:', e);
-  }
-
-  // 2순위: pastes.dev 폴백
+  // 1. pastes.dev 업로드 (대용량 JSON 완벽 지원)
   try {
     const res = await fetch('https://api.pastes.dev/post', {
       method: 'POST',
@@ -2256,42 +2218,63 @@ async function uploadSyncPayloadToCloud(jsonStr, targetRoomCode = null) {
     if (res.ok) {
       const data = await res.json();
       if (data && data.key) {
-        return targetRoomCode || ('PL-' + data.key);
+        pasteKey = data.key;
       }
     }
   } catch (e) {
     console.warn('pastes.dev upload error, trying dpaste fallback:', e);
   }
 
-  // 3순위: dpaste.com 폴백
-  try {
-    const formData = new URLSearchParams();
-    formData.append('content', jsonStr);
-    formData.append('syntax', 'json');
-    formData.append('expiry_days', '365');
+  // 2. dpaste.com 폴백
+  if (!pasteKey) {
+    try {
+      const formData = new URLSearchParams();
+      formData.append('content', jsonStr);
+      formData.append('syntax', 'json');
+      formData.append('expiry_days', '365');
 
-    const res = await fetch('https://dpaste.com/api/v2/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData
-    });
-    if (res.ok) {
-      const urlText = await res.text();
-      const trimmed = urlText.trim();
-      const parts = trimmed.split('/');
-      const key = parts[parts.length - 1] || parts[parts.length - 2];
-      if (key) {
-        return targetRoomCode || ('DP-' + key);
+      const res = await fetch('https://dpaste.com/api/v2/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData
+      });
+      if (res.ok) {
+        const urlText = await res.text();
+        const trimmed = urlText.trim();
+        const parts = trimmed.split('/');
+        const rawK = parts[parts.length - 1] || parts[parts.length - 2];
+        if (rawK) {
+          pasteKey = 'DP-' + rawK;
+        }
       }
+    } catch (e) {
+      console.error('dpaste fallback error:', e);
     }
-  } catch (e) {
-    console.error('dpaste fallback error:', e);
   }
 
-  throw new Error('클라우드 저장소에 연결할 수 없습니다. 인터넷 연결을 확인해주세요.');
+  if (!pasteKey) {
+    throw new Error('클라우드 저장소 업로드에 실패했습니다. 인터넷 연결을 확인해주세요.');
+  }
+
+  const roomCode = targetRoomCode || ('PL-' + generateCleanRoomCode());
+
+  // 3. KV Store에 roomCode -> pasteKey 포인터 매핑 저장 (초고속, 방 코드 영구 불변!)
+  try {
+    const kvUrl = `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${SYNC_KV_APP_KEY}/${encodeURIComponent(roomCode)}/${encodeURIComponent(pasteKey)}`;
+    const kvRes = await fetch(kvUrl, { method: 'POST' });
+    if (kvRes.ok) {
+      lastSyncedPasteKey = pasteKey;
+      return roomCode;
+    }
+  } catch (e) {
+    console.warn('KV store pointer update error:', e);
+  }
+
+  lastSyncedPasteKey = pasteKey;
+  return roomCode;
 }
 
-// 클라우드 다운로드
+// 클라우드 다운로드 (방 코드 -> 포인터 해석 -> 데이터 로드)
 async function downloadSyncPayloadFromCloud(rawCode) {
   if (!rawCode) throw new Error('동기화 코드를 입력해주세요.');
   let cleanCode = rawCode.trim();
@@ -2311,7 +2294,9 @@ async function downloadSyncPayloadFromCloud(rawCode) {
     cleanCode = 'DP-' + cleanCode.replace('https://dpaste.com/', '').replace('.txt', '').trim();
   }
 
-  // 1. In-Place KV 저장소 우선 조회 (대소문자 유연 지원)
+  let resolvedPasteKey = null;
+
+  // 1. KV Store 포인터 조회 (대소문자 유연 지원, 캐시 방지)
   const candidateKeys = [
     cleanCode,
     cleanCode.toUpperCase(),
@@ -2321,49 +2306,49 @@ async function downloadSyncPayloadFromCloud(rawCode) {
 
   for (const cKey of candidateKeys) {
     try {
-      const res = await fetch(`https://keyvalue.immanuel.co/api/KeyVal/GetValue/${SYNC_KV_APP_KEY}/${encodeURIComponent(cKey)}`);
+      const kvUrl = `https://keyvalue.immanuel.co/api/KeyVal/GetValue/${SYNC_KV_APP_KEY}/${encodeURIComponent(cKey)}`;
+      const res = await fetch(kvUrl, { cache: 'no-store' });
       if (res.ok) {
-        const rawText = await res.text();
-        const b64Data = (rawText || '').trim().replace(/^"|"$/g, '');
-        if (b64Data && b64Data !== 'null' && b64Data.length > 5) {
-          const decodedJson = base64UrlToString(b64Data);
-          const parsed = JSON.parse(decodedJson);
-          return { parsed, rawKey: cKey };
+        const rawText = (await res.text() || '').trim().replace(/^"|"$/g, '');
+        if (rawText && rawText !== 'null' && rawText.length >= 3) {
+          resolvedPasteKey = rawText;
+          break;
         }
       }
     } catch (e) {}
   }
 
-  // 2. Legacy / Fallback (pastes.dev & dpaste)
-  const isDpaste = /^DP-/i.test(cleanCode);
-  const key = cleanCode.replace(/^(PL|DP)-/i, '').trim();
+  // 2. 포인터가 없으면 직접 입력된 코드 자체를 pasteKey로 취급
+  const targetKey = resolvedPasteKey || cleanCode;
+  const isDpaste = targetKey.startsWith('DP-') || /^DP-/i.test(cleanCode);
+  const pureKey = targetKey.replace(/^(PL|DP)-/i, '').trim();
 
   let textData = null;
   if (isDpaste) {
     try {
-      const res = await fetch(`https://dpaste.com/${key}.txt`);
+      const res = await fetch(`https://dpaste.com/${pureKey}.txt`, { cache: 'no-store' });
       if (res.ok) textData = await res.text();
     } catch (e) {}
   } else {
     try {
-      const res = await fetch(`https://api.pastes.dev/${key}`);
+      const res = await fetch(`https://api.pastes.dev/${pureKey}`, { cache: 'no-store' });
       if (res.ok) textData = await res.text();
     } catch (e) {}
 
     if (!textData) {
       try {
-        const res = await fetch(`https://dpaste.com/${key}.txt`);
+        const res = await fetch(`https://dpaste.com/${pureKey}.txt`, { cache: 'no-store' });
         if (res.ok) textData = await res.text();
       } catch (e) {}
     }
   }
 
   if (!textData) {
-    throw new Error('동기화 코드를 찾을 수 없습니다. 대소문자를 다시 확인해주세요.');
+    throw new Error('동기화 코드를 찾을 수 없습니다. 코드를 다시 확인해주세요.');
   }
 
   const parsed = JSON.parse(textData);
-  return { parsed, rawKey: cleanCode };
+  return { parsed, rawKey: cleanCode, pasteKey: targetKey };
 }
 
 async function createSyncRoom() {
@@ -2396,14 +2381,22 @@ async function createSyncRoom() {
       }));
     }
 
+    // 💡 PC를 클라우드 플레이리스트로 즉시 전환하여 추가/삭제가 즉시 동기화되도록 보장
+    if (appState.cloudPlaylists.length > 0) {
+      appState.activePlaylistId = appState.cloudPlaylists[0].id;
+    }
+
     const jsonPayload = serializeSyncPayload();
     const roomCode = await uploadSyncPayloadToCloud(jsonPayload);
 
     activeSyncRoomId = roomCode;
     localStorage.setItem(SYNC_STORAGE_KEY, activeSyncRoomId);
     lastSyncedTimestamp = Date.now();
+    
+    saveState();
     updateSyncUI();
     renderPlaylists();
+    renderTracks();
     startCloudSyncPolling();
     showSyncStatus(`고정 동기화 코드가 발급되었습니다: ${roomCode}`, 'success', 5000);
   } catch (err) {
@@ -2434,7 +2427,7 @@ async function joinSyncRoom(inputRawCode) {
   showSyncStatus('클라우드에서 플레이리스트를 불러오는 중입니다...', 'info', 0);
 
   try {
-    const { parsed, rawKey } = await downloadSyncPayloadFromCloud(inputRawCode);
+    const { parsed, rawKey, pasteKey } = await downloadSyncPayloadFromCloud(inputRawCode);
 
     if (parsed && Array.isArray(parsed.playlists)) {
       // 썸네일 완전 복원 및 데이터 매핑 (로컬 플레이리스트는 100% 보존!)
@@ -2460,9 +2453,11 @@ async function joinSyncRoom(inputRawCode) {
       }
       appState.currentTrackIndex = -1;
       lastSyncedTimestamp = parsed.updatedAt || Date.now();
+      lastSyncedPasteKey = pasteKey;
       activeSyncRoomId = rawKey.startsWith('PL-') || rawKey.startsWith('DP-') ? rawKey : 'PL-' + rawKey;
       localStorage.setItem(SYNC_STORAGE_KEY, activeSyncRoomId);
 
+      saveState();
       renderPlaylists();
       renderTracks();
       updateSyncUI();
@@ -2489,10 +2484,10 @@ function scheduleCloudPush() {
   if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
   pushDebounceTimer = setTimeout(() => {
     pushStateToCloud(false);
-  }, 1200);
+  }, 350);
 }
 
-// 💡 곡 추가/삭제 시에도 방 코드는 절대 변경되지 않고 activeSyncRoomId에 덮어쓰기 저장!
+// 💡 곡 추가/삭제 시에도 방 코드는 절대 변경되지 않고 포인터 덮어쓰기 저장!
 async function pushStateToCloud(showToast = false) {
   if (!activeSyncRoomId || isSyncingNow) return;
   isSyncingNow = true;
@@ -2503,7 +2498,7 @@ async function pushStateToCloud(showToast = false) {
 
   try {
     const jsonPayload = serializeSyncPayload();
-    // activeSyncRoomId를 전달하여 동일한 방 코드에 덮어쓰기 저장!
+    // activeSyncRoomId를 전달하여 동일한 방 코드에 포인터 덮어쓰기 저장!
     await uploadSyncPayloadToCloud(jsonPayload, activeSyncRoomId);
     
     lastSyncedTimestamp = Date.now();
@@ -2524,18 +2519,21 @@ async function pushStateToCloud(showToast = false) {
 
 async function pullStateFromCloud(showToast = false) {
   if (!activeSyncRoomId || isSyncingNow) return;
-  isSyncingNow = true;
 
   if (showToast) {
     showSyncStatus('클라우드에서 최신 데이터를 가져오는 중...', 'info', 0);
   }
 
   try {
-    const { parsed } = await downloadSyncPayloadFromCloud(activeSyncRoomId);
+    const { parsed, pasteKey } = await downloadSyncPayloadFromCloud(activeSyncRoomId);
 
     if (parsed && Array.isArray(parsed.playlists)) {
       const remoteUpdatedAt = parsed.updatedAt || 0;
-      if (remoteUpdatedAt > lastSyncedTimestamp) {
+      const isNewer = remoteUpdatedAt > lastSyncedTimestamp || (pasteKey && pasteKey !== lastSyncedPasteKey);
+
+      if (isNewer) {
+        const currentTrack = getCurrentPlaylist()?.tracks?.[appState.currentTrackIndex];
+
         appState.cloudPlaylists = parsed.playlists.map(pl => ({
           id: pl.id || `cpl_${Date.now()}`,
           name: pl.name || '클라우드 플레이리스트',
@@ -2552,9 +2550,27 @@ async function pullStateFromCloud(showToast = false) {
           })
         }));
 
-        lastSyncedTimestamp = remoteUpdatedAt;
+        if (!isCloudPlaylist(appState.activePlaylistId) && appState.cloudPlaylists.length > 0) {
+          appState.activePlaylistId = appState.cloudPlaylists[0].id;
+        }
+
+        // 재생 중인 곡 인덱스 보정 (음악이 끊기거나 첫곡으로 튀지 않도록)
+        if (currentTrack) {
+          const activePl = getCurrentPlaylist();
+          if (activePl && activePl.tracks) {
+            const newIdx = activePl.tracks.findIndex(t => (t.videoId || t.id) === (currentTrack.videoId || currentTrack.id));
+            if (newIdx !== -1) {
+              appState.currentTrackIndex = newIdx;
+            }
+          }
+        }
+
+        lastSyncedTimestamp = remoteUpdatedAt || Date.now();
+        lastSyncedPasteKey = pasteKey;
+
         renderPlaylists();
         renderTracks();
+        highlightActiveTrack();
 
         if (showToast) {
           showSyncStatus('최신 클라우드 플레이리스트를 업데이트했습니다!', 'success', 3000);
@@ -2568,8 +2584,6 @@ async function pullStateFromCloud(showToast = false) {
     if (showToast) {
       showSyncStatus('클라우드 다운로드 실패: ' + err.message, 'error', 4000);
     }
-  } finally {
-    isSyncingNow = false;
   }
 }
 
@@ -2579,6 +2593,7 @@ function disconnectSyncRoom() {
   }
 
   activeSyncRoomId = null;
+  lastSyncedPasteKey = null;
   appState.cloudPlaylists = [];
   localStorage.removeItem(SYNC_STORAGE_KEY);
   if (syncPollingTimer) {
@@ -2640,10 +2655,10 @@ function copySyncCode() {
 function startCloudSyncPolling() {
   if (syncPollingTimer) clearInterval(syncPollingTimer);
   syncPollingTimer = setInterval(() => {
-    if (activeSyncRoomId && document.visibilityState === 'visible') {
+    if (activeSyncRoomId) {
       pullStateFromCloud(false);
     }
-  }, 15000);
+  }, 3500);
 }
 
 function initCloudSync() {
@@ -2897,6 +2912,12 @@ function setupEventListeners() {
           } catch (e) {}
         }
       }
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    if (activeSyncRoomId) {
+      pullStateFromCloud(false);
     }
   });
 
