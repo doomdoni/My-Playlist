@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>My Playlist - 유튜브 연속재생 플레이어</title>
   <!-- Google Fonts & Font Awesome Icons -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -21,15 +21,24 @@
     <button id="btn-close-warning" class="btn-icon" title="닫기"><i class="fa-solid fa-xmark"></i></button>
   </div>
 
+  <!-- 모바일 사이드바 배경 오버레이 (딤 처리) -->
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
   <div class="app-container">
-    <!-- 사이드바: 플레이리스트 목록 및 제어 -->
-    <aside class="sidebar">
-      <div class="brand">
-        <i class="fa-brands fa-youtube logo-icon"></i>
-        <div class="brand-text">
-          <span class="brand-my">My</span>
-          <span class="brand-playlist rainbow-text">Playlist</span>
+    <!-- 사이드바 (모바일에서는 슬라이드 드로어 메뉴) -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top-header">
+        <div class="brand">
+          <i class="fa-brands fa-youtube logo-icon"></i>
+          <div class="brand-text">
+            <span class="brand-my">My</span>
+            <span class="brand-playlist rainbow-text">Playlist</span>
+          </div>
         </div>
+        <!-- 모바일 사이드바 닫기 버튼 -->
+        <button id="btn-close-sidebar" class="btn-icon mobile-only" title="메뉴 닫기">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
       </div>
 
       <div class="playlist-header-action">
@@ -64,6 +73,20 @@
 
     <!-- 메인 컨텐츠 영역 -->
     <main class="main-content">
+      <!-- 모바일 상단 네비게이션 바 -->
+      <div class="mobile-nav-bar mobile-only">
+        <button id="btn-open-sidebar" class="btn-icon nav-menu-btn" title="플레이리스트 목록 열기">
+          <i class="fa-solid fa-bars"></i>
+        </button>
+        <div class="mobile-brand">
+          <span class="brand-my">My</span>
+          <span class="brand-playlist rainbow-text">Playlist</span>
+        </div>
+        <button id="btn-mobile-toggle-view" class="btn-icon nav-view-btn" title="영상/목록 화면 전환">
+          <i class="fa-solid fa-tv" id="icon-mobile-view"></i>
+        </button>
+      </div>
+
       <!-- 상단 헤더 & 영상 추가 바 -->
       <header class="top-header">
         <div class="header-info">
@@ -71,11 +94,11 @@
           <p id="current-playlist-meta" class="playlist-meta">새로운 플레이리스트를 만들어 음악이나 영상을 추가해보세요.</p>
         </div>
         <div class="header-actions" id="header-actions">
-          <button id="btn-rename-playlist" class="btn-secondary" title="플레이리스트 이름 변경">
-            <i class="fa-solid fa-pen"></i> 이름 변경
+          <button id="btn-rename-playlist" class="btn-secondary btn-touch" title="플레이리스트 이름 변경">
+            <i class="fa-solid fa-pen"></i> <span class="btn-text">수정</span>
           </button>
-          <button id="btn-delete-playlist" class="btn-danger" title="현재 플레이리스트 삭제">
-            <i class="fa-solid fa-trash"></i> 삭제
+          <button id="btn-delete-playlist" class="btn-danger btn-touch" title="현재 플레이리스트 삭제">
+            <i class="fa-solid fa-trash"></i> <span class="btn-text">삭제</span>
           </button>
         </div>
       </header>
@@ -85,23 +108,23 @@
         <form id="form-add-track" class="add-track-form">
           <div class="input-group">
             <i class="fa-solid fa-link input-icon"></i>
-            <input type="text" id="input-youtube-url" placeholder="유튜브 URL을 입력하세요 (예: https://www.youtube.com/watch?v=... 또는 https://youtu.be/...)" required autocomplete="off">
+            <input type="text" id="input-youtube-url" placeholder="유튜브 링크 입력 (watch?v=, youtu.be/ 등)" required autocomplete="off">
           </div>
-          <button type="submit" class="btn-primary" id="btn-submit-add">
-            <i class="fa-solid fa-plus"></i> 플레이리스트에 추가
+          <button type="submit" class="btn-primary btn-touch" id="btn-submit-add">
+            <i class="fa-solid fa-plus"></i> <span class="btn-add-text">추가</span>
           </button>
         </form>
         <div id="url-status" class="status-msg hidden"></div>
       </section>
 
       <!-- 비디오 뷰어 & 트랙 리스트 영역 -->
-      <div class="content-body">
+      <div class="content-body" id="content-body">
         <!-- 왼쪽: 트랙 목록 -->
-        <section class="tracks-section">
+        <section class="tracks-section" id="tracks-section">
           <div class="tracks-header">
             <span class="col-drag"></span>
             <span class="col-index">#</span>
-            <span class="col-title">곡 제목 (드래그하여 순서 변경)</span>
+            <span class="col-title">곡 제목 (길게 눌러 순서 변경)</span>
             <span class="col-action">삭제</span>
           </div>
           <div class="track-list-wrapper">
@@ -116,9 +139,8 @@
         </section>
 
         <!-- 오른쪽: 영상 뷰어 & 미디어 디스플레이 -->
-        <section class="player-view-section">
+        <section class="player-view-section" id="player-view-section">
           <div class="video-container" id="video-wrapper">
-            <!-- YouTube Iframe API가 주입될 div -->
             <div id="yt-player"></div>
             <div id="player-placeholder" class="player-placeholder">
               <i class="fa-brands fa-youtube placeholder-icon"></i>
@@ -139,10 +161,32 @@
       </div>
     </main>
 
-    <!-- 하단 고정 플레이어 바 -->
+    <!-- 하단 고정 플레이어 바 (모바일 완벽 대응 반응형) -->
     <footer class="bottom-player-bar" id="bottom-player-bar">
-      <!-- 좌측: 현재 재생 곡 정보 -->
-      <div class="bar-now-playing">
+      <!-- 모바일 상단 정보 및 메인 컨트롤 라인 -->
+      <div class="mobile-player-top-row mobile-only">
+        <div class="mobile-track-info">
+          <img id="mobile-bar-thumb" class="mobile-thumb" src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=100&q=80" alt="thumb" crossorigin="anonymous">
+          <div class="mobile-text">
+            <div id="mobile-bar-title" class="mobile-title">곡을 선택해주세요</div>
+            <div id="mobile-bar-artist" class="mobile-artist">YouTube Player</div>
+          </div>
+        </div>
+        <div class="mobile-main-actions">
+          <button id="btn-mobile-prev" class="control-btn" title="이전 곡">
+            <i class="fa-solid fa-backward-step"></i>
+          </button>
+          <button id="btn-mobile-play-pause" class="control-btn play-btn" title="재생 / 일시정지">
+            <i class="fa-solid fa-play" id="icon-mobile-play-pause"></i>
+          </button>
+          <button id="btn-mobile-next" class="control-btn" title="다음 곡">
+            <i class="fa-solid fa-forward-step"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 데스크탑 좌측 정보 (모바일에서는 숨김) -->
+      <div class="bar-now-playing desktop-only">
         <img id="bar-thumb" src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=100&q=80" alt="thumb" crossorigin="anonymous">
         <div class="bar-info">
           <div id="bar-title" class="bar-title">재생할 곡을 선택해주세요</div>
@@ -150,9 +194,9 @@
         </div>
       </div>
 
-      <!-- 중앙: 플레이어 컨트롤 및 프로그레스바 -->
+      <!-- 중앙 컨트롤 및 프로그레스바 -->
       <div class="bar-controls-center">
-        <div class="player-buttons">
+        <div class="player-buttons desktop-only">
           <button id="btn-shuffle" class="control-btn" title="셔플 (랜덤 재생)">
             <i class="fa-solid fa-shuffle"></i>
           </button>
@@ -175,9 +219,9 @@
           <span id="time-current" class="time-text">0:00</span>
           
           <div class="seekbar-module-wrapper">
-            <!-- 재생바 바로 위에 위치하는 영상 맞춤형 색감 파형(Waveform) -->
+            <!-- 재생바 바로 위에 위치하는 영상 맞춤형 파형 -->
             <div class="top-sound-waveform" id="top-sound-waveform">
-              <!-- JS로 생성되는 50개 파형 바 -->
+              <!-- JS로 생성되는 파형 바들 -->
             </div>
 
             <!-- 재생바 트랙 -->
@@ -190,10 +234,24 @@
 
           <span id="time-total" class="time-text">0:00</span>
         </div>
+
+        <!-- 모바일 하단 보조 제어 바 (셔플, 반복, 음소거) -->
+        <div class="mobile-sub-controls mobile-only">
+          <button id="btn-mobile-shuffle" class="control-btn-sm" title="셔플">
+            <i class="fa-solid fa-shuffle"></i>
+          </button>
+          <button id="btn-mobile-repeat" class="control-btn-sm" title="반복">
+            <i class="fa-solid fa-repeat" id="icon-mobile-repeat"></i>
+            <span id="mobile-repeat-badge" class="badge-one-sm hidden">1</span>
+          </button>
+          <button id="btn-mobile-mute" class="control-btn-sm" title="음소거">
+            <i class="fa-solid fa-volume-high" id="icon-mobile-volume"></i>
+          </button>
+        </div>
       </div>
 
-      <!-- 우측: 볼륨 및 화면 모드 -->
-      <div class="bar-options-right">
+      <!-- 우측 볼륨 (데스크탑 전용) -->
+      <div class="bar-options-right desktop-only">
         <button id="btn-toggle-video" class="control-btn" title="영상 화면 숨기기/보기">
           <i class="fa-solid fa-display"></i>
         </button>
