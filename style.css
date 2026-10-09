@@ -359,24 +359,43 @@ body {
   gap: 12px;
 }
 
-.nav-menu-btn {
+.top-nav-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-menu-btn,
+.nav-wakelock-btn {
   color: var(--text-main);
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   width: 40px;
   height: 40px;
   border-radius: var(--radius-md);
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+  transition: border-color var(--transition-fast), background-color var(--transition-fast), color var(--transition-fast);
 }
 
-.nav-menu-btn:hover {
+.nav-menu-btn:hover,
+.nav-wakelock-btn:hover {
   background-color: var(--bg-card-hover);
   border-color: var(--dynamic-video-color);
+}
+
+.nav-wakelock-btn {
+  color: var(--text-muted);
+}
+
+.nav-wakelock-btn.active {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.5);
+  background-color: rgba(251, 191, 36, 0.12);
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.25);
 }
 
 .top-header {

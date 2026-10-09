@@ -83,9 +83,14 @@
     <main class="main-content">
       <!-- 상단 네비게이션 바 -->
       <div class="top-nav-bar">
-        <button id="btn-open-sidebar" class="btn-icon nav-menu-btn" title="메뉴 열기/닫기">
-          <i class="fa-solid fa-bars"></i>
-        </button>
+        <div class="top-nav-left">
+          <button id="btn-open-sidebar" class="btn-icon nav-menu-btn" title="메뉴 열기/닫기">
+            <i class="fa-solid fa-bars"></i>
+          </button>
+          <button id="btn-wakelock" class="btn-icon nav-wakelock-btn active" title="화면 꺼짐 방지 (화면 켜짐 유지)">
+            <i class="fa-solid fa-sun" id="icon-wakelock"></i>
+          </button>
+        </div>
         <div class="nav-brand mobile-only">
           <span class="brand-my">My</span>
           <span class="brand-playlist rainbow-text">Playlist</span>
@@ -288,6 +293,9 @@
       </div>
     </footer>
   </div>
+
+  <!-- 백그라운드 오디오 유지용 무음 트랙 -->
+  <audio id="silent-audio-driver" loop preload="auto" src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA" style="display:none;"></audio>
 
   <!-- 영상 색상 분석용 히든 캔버스 -->
   <canvas id="color-canvas" style="display:none;" width="10" height="10"></canvas>
