@@ -838,24 +838,29 @@ function centerActiveFocusTrack(smooth = true) {
 function startProgressTimer() {
   stopProgressTimer();
   progressUpdateTimer = setInterval(() => {
-    if (!ytPlayer || !isPlayerReady || isDraggingSeekbar) return;
+    if (!ytPlayer || !isPlayerReady) return;
     try {
       const curTime = ytPlayer.getCurrentTime() || 0;
       const duration = ytPlayer.getDuration() || 0;
 
-      el.timeCurrent.textContent = formatTime(curTime);
-      el.timeTotal.textContent = formatTime(duration);
+      if (!isDraggingSeekbar) {
+        el.timeCurrent.textContent = formatTime(curTime);
+        el.timeTotal.textContent = formatTime(duration);
+        if (duration > 0) {
+          el.progressFilled.style.width = `${(curTime / duration) * 100}%`;
+        } else {
+          el.progressFilled.style.width = '0%';
+        }
+      }
 
-      if (el.focusTimeCurrent) el.focusTimeCurrent.textContent = formatTime(curTime);
-      if (el.focusTimeTotal) el.focusTimeTotal.textContent = formatTime(duration);
-
-      if (duration > 0) {
-        const percentage = (curTime / duration) * 100;
-        el.progressFilled.style.width = `${percentage}%`;
-        if (el.focusProgressFilled) el.focusProgressFilled.style.width = `${percentage}%`;
-      } else {
-        el.progressFilled.style.width = '0%';
-        if (el.focusProgressFilled) el.focusProgressFilled.style.width = '0%';
+      if (!isDraggingFocusSeekbar) {
+        if (el.focusTimeCurrent) el.focusTimeCurrent.textContent = formatTime(curTime);
+        if (el.focusTimeTotal) el.focusTimeTotal.textContent = formatTime(duration);
+        if (el.focusProgressFilled && duration > 0) {
+          el.focusProgressFilled.style.width = `${(curTime / duration) * 100}%`;
+        } else if (el.focusProgressFilled) {
+          el.focusProgressFilled.style.width = '0%';
+        }
       }
     } catch (e) {}
   }, 250);
@@ -968,6 +973,114 @@ function setupSeekbarDragEvents() {
       const touch = e.changedTouches ? e.changedTouches[0] : null;
       if (touch) {
         finalizeSeek(touch.clientX);
+      }
+    }
+  };
+
+  bar.addEventListener('touchend', endTouch);
+  bar.addEventListener('touchcancel', endTouch);
+}
+
+/* ==================== 🌟 플리만 보기 프로그레스바 60fps 드래그 & 터치 스와이프 탐색 ==================== */
+let isDraggingFocusSeekbar = false;
+let focusDragAnimationRaf = null;
+
+function updateFocusSeekbarUI(clientX) {
+  if (focusDragAnimationRaf) {
+    cancelAnimationFrame(focusDragAnimationRaf);
+  }
+
+  focusDragAnimationRaf = requestAnimationFrame(() => {
+    if (!el.focusProgressBar) return;
+    const rect = el.focusProgressBar.getBoundingClientRect();
+    let offsetX = clientX - rect.left;
+    offsetX = Math.max(0, Math.min(offsetX, rect.width));
+
+    const percentage = (offsetX / rect.width) * 100;
+    if (el.focusProgressFilled) el.focusProgressFilled.style.width = `${percentage}%`;
+
+    if (ytPlayer && isPlayerReady) {
+      try {
+        const duration = ytPlayer.getDuration() || 0;
+        if (duration > 0) {
+          const seekTime = (offsetX / rect.width) * duration;
+          if (el.focusTimeCurrent) el.focusTimeCurrent.textContent = formatTime(seekTime);
+        }
+      } catch (e) {}
+    }
+  });
+}
+
+function finalizeFocusSeek(clientX) {
+  if (focusDragAnimationRaf) {
+    cancelAnimationFrame(focusDragAnimationRaf);
+  }
+
+  if (!ytPlayer || !isPlayerReady || !el.focusProgressBar) return;
+  const rect = el.focusProgressBar.getBoundingClientRect();
+  let offsetX = clientX - rect.left;
+  offsetX = Math.max(0, Math.min(offsetX, rect.width));
+
+  try {
+    const duration = ytPlayer.getDuration() || 0;
+    if (duration > 0) {
+      const seekTime = (offsetX / rect.width) * duration;
+      ytPlayer.seekTo(seekTime, true);
+    }
+  } catch (e) {}
+}
+
+function setupFocusSeekbarDragEvents() {
+  const bar = el.focusProgressBar;
+  if (!bar) return;
+
+  bar.addEventListener('mousedown', (e) => {
+    isDraggingFocusSeekbar = true;
+    bar.classList.add('is-dragging');
+    updateFocusSeekbarUI(e.clientX);
+
+    const onMouseMove = (moveEvent) => {
+      if (isDraggingFocusSeekbar) {
+        updateFocusSeekbarUI(moveEvent.clientX);
+      }
+    };
+
+    const onMouseUp = (upEvent) => {
+      if (isDraggingFocusSeekbar) {
+        isDraggingFocusSeekbar = false;
+        bar.classList.remove('is-dragging');
+        finalizeFocusSeek(upEvent.clientX);
+      }
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  });
+
+  bar.addEventListener('touchstart', (e) => {
+    if (e.touches.length > 0) {
+      isDraggingFocusSeekbar = true;
+      bar.classList.add('is-dragging');
+      updateFocusSeekbarUI(e.touches[0].clientX);
+    }
+  }, { passive: false });
+
+  bar.addEventListener('touchmove', (e) => {
+    if (isDraggingFocusSeekbar && e.touches.length > 0) {
+      e.preventDefault();
+      updateFocusSeekbarUI(e.touches[0].clientX);
+    }
+  }, { passive: false });
+
+  const endTouch = (e) => {
+    if (isDraggingFocusSeekbar) {
+      isDraggingFocusSeekbar = false;
+      bar.classList.remove('is-dragging');
+      const touch = e.changedTouches ? e.changedTouches[0] : null;
+      if (touch) {
+        finalizeFocusSeek(touch.clientX);
       }
     }
   };
@@ -1727,18 +1840,7 @@ function setupEventListeners() {
   if (el.btnFocusShuffle) el.btnFocusShuffle.addEventListener('click', toggleShuffle);
   if (el.btnFocusRepeat) el.btnFocusRepeat.addEventListener('click', toggleRepeat);
 
-  if (el.focusProgressBar) {
-    el.focusProgressBar.addEventListener('click', (e) => {
-      if (!ytPlayer || !isPlayerReady) return;
-      const rect = el.focusProgressBar.getBoundingClientRect();
-      const offsetX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-      const duration = ytPlayer.getDuration() || 0;
-      if (duration > 0) {
-        const seekTime = (offsetX / rect.width) * duration;
-        ytPlayer.seekTo(seekTime, true);
-      }
-    });
-  }
+  setupFocusSeekbarDragEvents();
 
   // 화면 꺼짐 방지 토글 버튼
   if (el.btnWakeLock) {
