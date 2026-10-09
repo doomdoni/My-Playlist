@@ -158,6 +158,7 @@ const el = {
   syncConnectedView: document.getElementById('sync-connected-view'),
   btnCreateSyncRoom: document.getElementById('btn-create-sync-room'),
   inputSyncCode: document.getElementById('input-sync-code'),
+  btnPasteSyncCode: document.getElementById('btn-paste-sync-code'),
   btnJoinSyncRoom: document.getElementById('btn-join-sync-room'),
   displaySyncCode: document.getElementById('display-sync-code'),
   btnCopySyncCode: document.getElementById('btn-copy-sync-code'),
@@ -2069,10 +2070,10 @@ async function uploadSyncPayloadToCloud(jsonStr) {
 
 // 클라우드 다운로드
 async function downloadSyncPayloadFromCloud(rawCode) {
-  if (!rawCode) throw new Error('동기화 코드가 비어있습니다.');
+  if (!rawCode) throw new Error('동기화 코드를 입력해주세요.');
   let cleanCode = rawCode.trim();
 
-  // URL 형태 입력 처리
+  // URL 형태 입력 처리 (?sync=... 또는 전체 링크)
   if (cleanCode.includes('sync=')) {
     try {
       const parsedUrl = new URL(cleanCode.startsWith('http') ? cleanCode : 'http://dummy.com/' + cleanCode);
@@ -2087,17 +2088,18 @@ async function downloadSyncPayloadFromCloud(rawCode) {
     cleanCode = 'DP-' + cleanCode.replace('https://dpaste.com/', '').replace('.txt', '').trim();
   }
 
-  const isDpaste = cleanCode.startsWith('DP-');
-  const key = cleanCode.replace(/^PL-/, '').replace(/^DP-/, '').trim();
+  const isDpaste = /^DP-/i.test(cleanCode);
+  const key = cleanCode.replace(/^(PL|DP)-/i, '').trim();
 
   if (!key) throw new Error('올바르지 않은 동기화 코드 형식입니다.');
 
   let textData = null;
 
   if (isDpaste) {
-    const res = await fetch(`https://dpaste.com/${key}.txt`);
-    if (!res.ok) throw new Error(`동기화 코드를 찾을 수 없습니다 (${res.status})`);
-    textData = await res.text();
+    try {
+      const res = await fetch(`https://dpaste.com/${key}.txt`);
+      if (res.ok) textData = await res.text();
+    } catch (e) {}
   } else {
     // pastes.dev 우선 시도
     try {
@@ -2119,7 +2121,7 @@ async function downloadSyncPayloadFromCloud(rawCode) {
   }
 
   if (!textData) {
-    throw new Error('동기화 코드를 찾을 수 없거나 만료되었습니다.');
+    throw new Error('동기화 코드를 찾을 수 없습니다. 대소문자를 정확히 확인해주세요.');
   }
 
   const parsed = JSON.parse(textData);
@@ -2571,6 +2573,23 @@ function setupEventListeners() {
   if (el.btnJoinSyncRoom) {
     el.btnJoinSyncRoom.addEventListener('click', () => {
       if (el.inputSyncCode) joinSyncRoom(el.inputSyncCode.value);
+    });
+  }
+  if (el.btnPasteSyncCode) {
+    el.btnPasteSyncCode.addEventListener('click', async () => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          const text = await navigator.clipboard.readText();
+          if (text) {
+            el.inputSyncCode.value = text.trim();
+            el.inputSyncCode.focus();
+          }
+        } else {
+          el.inputSyncCode.focus();
+        }
+      } catch (err) {
+        el.inputSyncCode.focus();
+      }
     });
   }
   if (el.inputSyncCode) {
