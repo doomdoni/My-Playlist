@@ -1047,13 +1047,13 @@ body {
 
 .top-sound-waveform {
   width: 100%;
-  height: 14px;
+  height: 18px;
   position: relative;
   pointer-events: none;
   opacity: 0.45;
   transition: opacity 0.3s ease;
   overflow: hidden;
-  margin-bottom: -1px;
+  margin-bottom: 0px;
 }
 
 .sound-wave-canvas {

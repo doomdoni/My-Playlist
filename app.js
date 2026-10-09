@@ -252,62 +252,82 @@ function applyColorToCSS(color1, color2, glowStr, gradStr) {
 }
 
 function extractAndApplyVideoColor(thumbnailUrl, videoId) {
+  if (!videoId) return;
+
   if (videoColorCache.has(videoId)) {
     const cached = videoColorCache.get(videoId);
     applyColorToCSS(cached.color1, cached.color2, cached.glowStr, cached.gradStr);
     return;
   }
 
-  // 빠른 즉각 반응을 위한 해시 기반 기본 색상 즉시 적용 (0ms)
+  // 즉시 기본 색상 적용 (0ms 즉각 반응)
   fallbackColorFromId(videoId);
 
   const img = new Image();
   img.crossOrigin = 'Anonymous';
-  img.src = thumbnailUrl;
+  img.src = thumbnailUrl || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
   img.onload = function() {
     try {
-      const ctx = el.colorCanvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, 10, 10);
-      const data = ctx.getImageData(0, 0, 10, 10).data;
+      const canvas = el.colorCanvas || document.getElementById('color-canvas');
+      if (!canvas) {
+        fallbackColorFromId(videoId);
+        return;
+      }
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, 16, 16);
+      const data = ctx.getImageData(0, 0, 16, 16).data;
       
-      let r = 0, g = 0, b = 0, count = 0;
+      let bestSaturation = -1;
+      let bestR = 255, bestG = 0, bestB = 85;
+      let totalR = 0, totalG = 0, totalB = 0, validPixels = 0;
+
       for (let i = 0; i < data.length; i += 4) {
-        const brightness = (data[i] + data[i+1] + data[i+2]) / 3;
-        if (brightness > 30 && brightness < 230) {
-          r += data[i];
-          g += data[i+1];
-          b += data[i+2];
-          count++;
+        const r = data[i], g = data[i+1], b = data[i+2];
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const l = (max + min) / 510;
+        const d = max - min;
+        const s = max === 0 ? 0 : d / max;
+
+        // 너무 어둡거나 너무 흰 픽셀 제외 (블랙바, 흰 텍스트 제외)
+        if (l > 0.15 && l < 0.88 && s > 0.18) {
+          totalR += r;
+          totalG += g;
+          totalB += b;
+          validPixels++;
+
+          if (s > bestSaturation) {
+            bestSaturation = s;
+            bestR = r;
+            bestG = g;
+            bestB = b;
+          }
         }
       }
 
-      if (count > 0) {
-        r = Math.floor(r / count);
-        g = Math.floor(g / count);
-        b = Math.floor(b / count);
-      } else {
-        const hash = videoId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-        r = (hash * 37) % 200 + 55;
-        g = (hash * 59) % 200 + 55;
-        b = (hash * 83) % 200 + 55;
+      let r = bestR, g = bestG, b = bestB;
+      if (validPixels > 0 && bestSaturation < 0.3) {
+        r = Math.floor(totalR / validPixels);
+        g = Math.floor(totalG / validPixels);
+        b = Math.floor(totalB / validPixels);
       }
 
+      // 채도 & 밝기 보정 (항상 영롱하고 선명하게)
       const maxVal = Math.max(r, g, b);
-      if (maxVal < 140) {
-        const factor = 170 / (maxVal || 1);
+      if (maxVal < 160) {
+        const factor = 190 / Math.max(1, maxVal);
         r = Math.min(255, Math.floor(r * factor));
         g = Math.min(255, Math.floor(g * factor));
         b = Math.min(255, Math.floor(b * factor));
       }
 
-      const r2 = (r + 60) % 255;
-      const g2 = (g + 80) % 255;
-      const b2 = (b + 110) % 255;
-
       const color1 = `rgb(${r}, ${g}, ${b})`;
+      const r2 = (r + 70) % 255;
+      const g2 = (g + 90) % 255;
+      const b2 = (b + 120) % 255;
       const color2 = `rgb(${r2}, ${g2}, ${b2})`;
-      const glowStr = `rgba(${r}, ${g}, ${b}, 0.45)`;
+      const glowStr = `rgba(${r}, ${g}, ${b}, 0.5)`;
       const gradStr = `linear-gradient(90deg, ${color1}, ${color2})`;
 
       videoColorCache.set(videoId, { color1, color2, glowStr, gradStr });
@@ -330,11 +350,11 @@ function fallbackColorFromId(videoId) {
   if (!videoId) return;
   const hash = videoId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const hue1 = hash % 360;
-  const hue2 = (hue1 + 50) % 360;
+  const hue2 = (hue1 + 55) % 360;
   
-  const color1 = `hsl(${hue1}, 85%, 60%)`;
-  const color2 = `hsl(${hue2}, 85%, 60%)`;
-  const glowStr = `hsla(${hue1}, 85%, 60%, 0.4)`;
+  const color1 = `hsl(${hue1}, 90%, 62%)`;
+  const color2 = `hsl(${hue2}, 90%, 62%)`;
+  const glowStr = `hsla(${hue1}, 90%, 62%, 0.45)`;
   const gradStr = `linear-gradient(90deg, ${color1}, ${color2})`;
 
   applyColorToCSS(color1, color2, glowStr, gradStr);
@@ -512,42 +532,55 @@ function onPlayerError(event) {
   }, 400);
 }
 
-/* ==================== 🌊 재생바 위 파도형 실시간 유체 파형 애니메이션 ==================== */
-let waveCanvasCtx = null;
-let waveAnimFrame = null;
-let wavePhase = 0;
-let waveAmplitude = 0;
-let targetWaveAmplitude = 0;
+/* ==================== 🎛️ 재생바 위 통통 튀는 리드미컬 오디오 스펙트럼 시각화 ==================== */
+let spectrumCanvasCtx = null;
+let spectrumAnimFrame = null;
+let spectrumBars = [];
+const NUM_SPECTRUM_BARS = 44;
 
 function initTopSoundWaveform() {
   const canvas = el.soundWaveCanvas || document.getElementById('sound-wave-canvas');
   if (!canvas) return;
-  waveCanvasCtx = canvas.getContext('2d');
+  spectrumCanvasCtx = canvas.getContext('2d');
   
+  // 스펙트럼 바 객체 초기화
+  spectrumBars = [];
+  for (let i = 0; i < NUM_SPECTRUM_BARS; i++) {
+    spectrumBars.push({
+      height: 2,
+      targetHeight: 2,
+      peak: 2,
+      peakTimer: 0,
+      bounceSpeed: 0.28 + Math.random() * 0.14
+    });
+  }
+
   function resizeCanvas() {
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     if (rect.width > 0 && rect.height > 0) {
       canvas.width = rect.width * dpr;
       canvas.height = rect.height * dpr;
-      if (waveCanvasCtx) {
-        waveCanvasCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (spectrumCanvasCtx) {
+        spectrumCanvasCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
     }
   }
 
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
-  startWaveAnimation();
+  startSpectrumAnimation();
 }
 
-function startWaveAnimation() {
-  if (waveAnimFrame) cancelAnimationFrame(waveAnimFrame);
+function startSpectrumAnimation() {
+  if (spectrumAnimFrame) cancelAnimationFrame(spectrumAnimFrame);
 
-  function renderWave() {
+  let time = 0;
+
+  function renderSpectrum() {
     const canvas = el.soundWaveCanvas || document.getElementById('sound-wave-canvas');
-    if (!canvas || !waveCanvasCtx) {
-      waveAnimFrame = requestAnimationFrame(renderWave);
+    if (!canvas || !spectrumCanvasCtx) {
+      spectrumAnimFrame = requestAnimationFrame(renderSpectrum);
       return;
     }
 
@@ -556,65 +589,108 @@ function startWaveAnimation() {
     const height = rect.height;
 
     if (width === 0 || height === 0) {
-      waveAnimFrame = requestAnimationFrame(renderWave);
+      spectrumAnimFrame = requestAnimationFrame(renderSpectrum);
       return;
     }
 
-    // 부드러운 진폭 전환 (음악 재생 시 파도 활성화, 일시정지 시 잔잔한 미세 물결)
-    targetWaveAmplitude = appState.isPlaying ? 1 : 0.18;
-    waveAmplitude += (targetWaveAmplitude - waveAmplitude) * 0.08;
+    spectrumCanvasCtx.clearRect(0, 0, width, height);
 
-    waveCanvasCtx.clearRect(0, 0, width, height);
+    const isPlaying = appState.isPlaying;
+    time += isPlaying ? 0.08 : 0.02;
 
     const color1 = getComputedStyle(document.documentElement).getPropertyValue('--dynamic-video-color').trim() || '#ff0055';
     const color2 = getComputedStyle(document.documentElement).getPropertyValue('--dynamic-video-color-2').trim() || '#8000ff';
 
-    // 1번 파도 레이어 (배경 완만한 파도)
-    waveCanvasCtx.save();
-    const grad1 = waveCanvasCtx.createLinearGradient(0, 0, width, 0);
-    grad1.addColorStop(0, color1);
-    grad1.addColorStop(1, color2);
-    waveCanvasCtx.fillStyle = grad1;
-    waveCanvasCtx.globalAlpha = 0.32;
+    // 44개 바의 너비 및 간격 계산
+    const numBars = NUM_SPECTRUM_BARS;
+    const gap = 2;
+    const totalGap = (numBars - 1) * gap;
+    const barWidth = Math.max(2, (width - totalGap) / numBars);
 
-    waveCanvasCtx.beginPath();
-    waveCanvasCtx.moveTo(0, height);
-    for (let x = 0; x <= width; x += 4) {
-      const y = height / 2 + Math.sin(x * 0.016 + wavePhase * 0.8) * (height * 0.36 * waveAmplitude);
-      waveCanvasCtx.lineTo(x, y);
+    // 음악 주파수 대역 시뮬레이션 (저음 비트, 중음 보컬, 고음 리듬)
+    const bassBeat = Math.pow(Math.max(0, Math.sin(time * 2.8)), 3) * 0.95 + Math.pow(Math.max(0, Math.sin(time * 1.4 + 0.5)), 4) * 0.9;
+    const snareBeat = Math.pow(Math.max(0, Math.sin(time * 5.6 + Math.PI * 0.5)), 3) * 0.85;
+    const hihatBeat = Math.pow(Math.max(0, Math.sin(time * 11.2)), 2) * 0.75;
+
+    for (let i = 0; i < numBars; i++) {
+      const bar = spectrumBars[i];
+      const normIdx = i / numBars; // 0 (저음) -> 1 (고음)
+
+      if (isPlaying) {
+        // 주파수별 리듬 반응 계산
+        let energy = 0;
+        if (normIdx < 0.25) {
+          // 서브 우퍼 & 저음 베이스: 묵직하게 쿵쿵 뜀
+          energy = bassBeat * (1 - normIdx * 2) + Math.sin(time * 3.5 + i * 0.3) * 0.25;
+        } else if (normIdx < 0.65) {
+          // 중음역 보컬 & 멜로디: 빠른 바운스
+          const midWave = Math.sin(time * 7.2 + i * 0.45) * Math.cos(time * 4.1 - i * 0.2);
+          energy = snareBeat * 0.6 + Math.max(0, midWave) * 0.7 + Math.sin(time * 2.8) * 0.2;
+        } else {
+          // 고음역 하이햇 & 세션: 톡톡 튀는 비트
+          const highWave = Math.sin(time * 13.5 + i * 0.8) * Math.sin(time * 8.2 + i * 0.5);
+          energy = hihatBeat * 0.7 + Math.max(0, highWave) * 0.65;
+        }
+
+        // 통통 튀는 높이 (최대 90% 높이, 최소 2.5px)
+        const targetH = Math.max(2.5, Math.min(height * 0.92, (energy * 0.85 + 0.15) * height * (0.85 + Math.sin(i * 0.7 + time) * 0.15)));
+        bar.height += (targetH - bar.height) * bar.bounceSpeed;
+
+        // 피크(Peak) 캡 바운스 및 낙하 물리 연산
+        if (bar.height >= bar.peak) {
+          bar.peak = bar.height;
+          bar.peakTimer = 10;
+        } else {
+          if (bar.peakTimer > 0) {
+            bar.peakTimer--;
+          } else {
+            bar.peak = Math.max(2.5, bar.peak - 0.45);
+          }
+        }
+      } else {
+        // 일시정지 시: 아주 잔잔한 미세 펄스
+        const idleH = 2 + Math.sin(time * 0.8 + i * 0.3) * 0.8;
+        bar.height += (idleH - bar.height) * 0.12;
+        bar.peak = bar.height;
+      }
+
+      const x = i * (barWidth + gap);
+      const barH = Math.max(2, bar.height);
+      const y = height - barH;
+
+      // 스펙트럼 바 그리기 (수직 발광 그라데이션)
+      spectrumCanvasCtx.save();
+      const barGrad = spectrumCanvasCtx.createLinearGradient(0, height, 0, y);
+      barGrad.addColorStop(0, color1);
+      barGrad.addColorStop(1, color2);
+      spectrumCanvasCtx.fillStyle = barGrad;
+
+      // 상단 둥근 캡
+      const radius = Math.min(barWidth / 2, 2);
+      spectrumCanvasCtx.beginPath();
+      if (spectrumCanvasCtx.roundRect) {
+        spectrumCanvasCtx.roundRect(x, y, barWidth, barH, [radius, radius, 0, 0]);
+      } else {
+        spectrumCanvasCtx.rect(x, y, barWidth, barH);
+      }
+      spectrumCanvasCtx.fill();
+
+      // 통통 튀는 상단 피크(Peak Dot) 표시
+      if (isPlaying && bar.peak > barH + 1.5 && bar.peak <= height) {
+        const peakY = height - bar.peak;
+        spectrumCanvasCtx.fillStyle = color2;
+        spectrumCanvasCtx.shadowColor = color2;
+        spectrumCanvasCtx.shadowBlur = 4;
+        spectrumCanvasCtx.fillRect(x, peakY, barWidth, 1.8);
+      }
+
+      spectrumCanvasCtx.restore();
     }
-    waveCanvasCtx.lineTo(width, height);
-    waveCanvasCtx.closePath();
-    waveCanvasCtx.fill();
-    waveCanvasCtx.restore();
 
-    // 2번 파도 레이어 (전면 날렵한 발광 파도)
-    waveCanvasCtx.save();
-    const grad2 = waveCanvasCtx.createLinearGradient(0, 0, width, 0);
-    grad2.addColorStop(0, color2);
-    grad2.addColorStop(0.5, color1);
-    grad2.addColorStop(1, color2);
-    waveCanvasCtx.strokeStyle = grad2;
-    waveCanvasCtx.lineWidth = 1.8;
-    waveCanvasCtx.globalAlpha = 0.95;
-    waveCanvasCtx.shadowColor = color1;
-    waveCanvasCtx.shadowBlur = 6;
-
-    waveCanvasCtx.beginPath();
-    for (let x = 0; x <= width; x += 3) {
-      const y = height / 2 + Math.sin(x * 0.024 + wavePhase * 1.25) * Math.cos(x * 0.01 + wavePhase * 0.45) * (height * 0.42 * waveAmplitude);
-      if (x === 0) waveCanvasCtx.moveTo(x, y);
-      else waveCanvasCtx.lineTo(x, y);
-    }
-    waveCanvasCtx.stroke();
-    waveCanvasCtx.restore();
-
-    // 부드러운 전진 속도
-    wavePhase += appState.isPlaying ? 0.04 : 0.01;
-    waveAnimFrame = requestAnimationFrame(renderWave);
+    spectrumAnimFrame = requestAnimationFrame(renderSpectrum);
   }
 
-  renderWave();
+  renderSpectrum();
 }
 
 function setVisualizerState(isPlaying) {
@@ -783,6 +859,7 @@ function playNextShuffledTrack() {
 
 /* ==================== 🌟 플리만 보기 (감상 모드) 기능 ==================== */
 let isFocusModeOpen = false;
+let wasVideoVisibleBeforeFocus = true;
 
 function openFocusMode() {
   let currentPl = getCurrentPlaylist();
@@ -801,6 +878,11 @@ function openFocusMode() {
   if (appState.currentTrackIndex === -1 && currentPl.tracks.length > 0) {
     playTrackByIndex(0);
   }
+
+  // 감상모드 시 뒤편 영상 화면을 자동으로 숨겨 배경이 거슬리지 않도록 처리
+  wasVideoVisibleBeforeFocus = appState.settings.isVideoVisible;
+  if (el.videoWrapper) el.videoWrapper.classList.add('minimized');
+  if (el.contentBody) el.contentBody.classList.add('video-minimized');
 
   isFocusModeOpen = true;
   if (el.focusOverlay) el.focusOverlay.classList.remove('hidden');
@@ -826,6 +908,12 @@ function closeFocusMode() {
   if (el.btnFocusMode) el.btnFocusMode.classList.remove('active');
   if (el.btnFocusModeBar) el.btnFocusModeBar.classList.remove('active');
   if (el.btnMobileFocus) el.btnMobileFocus.classList.remove('active');
+
+  // 감상모드 닫힐 때 원래 영상 표시 설정 복원
+  if (wasVideoVisibleBeforeFocus && appState.settings.isVideoVisible) {
+    if (el.videoWrapper) el.videoWrapper.classList.remove('minimized');
+    if (el.contentBody) el.contentBody.classList.remove('video-minimized');
+  }
 }
 
 function toggleFocusMode() {
