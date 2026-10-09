@@ -96,11 +96,8 @@
           <button id="btn-open-sidebar" class="btn-icon nav-menu-btn" title="메뉴 열기/닫기">
             <i class="fa-solid fa-bars"></i>
           </button>
-          <button id="btn-wakelock" class="btn-icon nav-wakelock-btn active" title="화면 꺼짐 방지 (화면 켜짐 유지)">
+          <button id="btn-wakelock" class="btn-icon nav-wakelock-btn mobile-only active" title="화면 꺼짐 방지 (화면 켜짐 유지)">
             <i class="fa-solid fa-sun" id="icon-wakelock"></i>
-          </button>
-          <button id="btn-focus-mode" class="btn-icon nav-focus-btn" title="플리만 보기 (감상 모드)">
-            <i class="fa-solid fa-compact-disc"></i>
           </button>
         </div>
         <div class="nav-brand mobile-only">
@@ -207,10 +204,7 @@
           </div>
           <div class="mobile-text">
             <div id="mobile-bar-title" class="mobile-title">곡을 선택해주세요</div>
-            <div class="mobile-artist-row">
-              <span id="mobile-bar-artist" class="mobile-artist">YouTube Player</span>
-              <span class="app-version-tag">v2.4.0</span>
-            </div>
+            <div id="mobile-bar-artist" class="mobile-artist">YouTube Player</div>
           </div>
         </div>
         <div class="mobile-main-actions">
@@ -236,10 +230,7 @@
         </div>
         <div class="bar-info">
           <div id="bar-title" class="bar-title">재생할 곡을 선택해주세요</div>
-          <div class="bar-artist-row">
-            <span id="bar-artist" class="bar-artist">YouTube Player</span>
-            <span class="app-version-tag">v2.4.0</span>
-          </div>
+          <div id="bar-artist" class="bar-artist">YouTube Player</div>
         </div>
       </div>
 
@@ -268,9 +259,9 @@
           <span id="time-current" class="time-text">0:00</span>
           
           <div class="seekbar-module-wrapper">
-            <!-- 재생바 바로 위에 위치하는 영상 맞춤형 파형 -->
+            <!-- 재생바 바로 위에 위치하는 영상 맞춤형 파도 파형 -->
             <div class="top-sound-waveform" id="top-sound-waveform">
-              <!-- JS로 생성되는 파형 바들 -->
+              <canvas id="sound-wave-canvas" class="sound-wave-canvas"></canvas>
             </div>
 
             <!-- 재생바 트랙 -->

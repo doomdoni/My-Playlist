@@ -80,6 +80,7 @@ const el = {
   
   bottomPlayerBar: document.getElementById('bottom-player-bar'),
   topSoundWaveform: document.getElementById('top-sound-waveform'),
+  soundWaveCanvas: document.getElementById('sound-wave-canvas'),
   
   // 데스크탑 플레이어 바
   desktopPlaceholderIcon: document.getElementById('desktop-placeholder-icon'),
@@ -511,20 +512,109 @@ function onPlayerError(event) {
   }, 400);
 }
 
-/* ==================== 재생바 위 파형 ==================== */
+/* ==================== 🌊 재생바 위 파도형 실시간 유체 파형 애니메이션 ==================== */
+let waveCanvasCtx = null;
+let waveAnimFrame = null;
+let wavePhase = 0;
+let waveAmplitude = 0;
+let targetWaveAmplitude = 0;
+
 function initTopSoundWaveform() {
-  if (!el.topSoundWaveform) return;
-  el.topSoundWaveform.innerHTML = '';
-  const barCount = 42;
-  for (let i = 0; i < barCount; i++) {
-    const stick = document.createElement('div');
-    stick.className = 'wave-stick';
-    const randomDuration = (0.5 + Math.random() * 0.7).toFixed(2);
-    const randomDelay = (Math.random() * 0.5).toFixed(2);
-    stick.style.animationDuration = `${randomDuration}s`;
-    stick.style.animationDelay = `${randomDelay}s`;
-    el.topSoundWaveform.appendChild(stick);
+  const canvas = el.soundWaveCanvas || document.getElementById('sound-wave-canvas');
+  if (!canvas) return;
+  waveCanvasCtx = canvas.getContext('2d');
+  
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    if (rect.width > 0 && rect.height > 0) {
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      if (waveCanvasCtx) {
+        waveCanvasCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+    }
   }
+
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  startWaveAnimation();
+}
+
+function startWaveAnimation() {
+  if (waveAnimFrame) cancelAnimationFrame(waveAnimFrame);
+
+  function renderWave() {
+    const canvas = el.soundWaveCanvas || document.getElementById('sound-wave-canvas');
+    if (!canvas || !waveCanvasCtx) {
+      waveAnimFrame = requestAnimationFrame(renderWave);
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+
+    if (width === 0 || height === 0) {
+      waveAnimFrame = requestAnimationFrame(renderWave);
+      return;
+    }
+
+    // 부드러운 진폭 전환 (음악 재생 시 파도 활성화, 일시정지 시 잔잔한 미세 물결)
+    targetWaveAmplitude = appState.isPlaying ? 1 : 0.18;
+    waveAmplitude += (targetWaveAmplitude - waveAmplitude) * 0.08;
+
+    waveCanvasCtx.clearRect(0, 0, width, height);
+
+    const color1 = getComputedStyle(document.documentElement).getPropertyValue('--dynamic-video-color').trim() || '#ff0055';
+    const color2 = getComputedStyle(document.documentElement).getPropertyValue('--dynamic-video-color-2').trim() || '#8000ff';
+
+    // 1번 파도 레이어 (배경 완만한 파도)
+    waveCanvasCtx.save();
+    const grad1 = waveCanvasCtx.createLinearGradient(0, 0, width, 0);
+    grad1.addColorStop(0, color1);
+    grad1.addColorStop(1, color2);
+    waveCanvasCtx.fillStyle = grad1;
+    waveCanvasCtx.globalAlpha = 0.32;
+
+    waveCanvasCtx.beginPath();
+    waveCanvasCtx.moveTo(0, height);
+    for (let x = 0; x <= width; x += 4) {
+      const y = height / 2 + Math.sin(x * 0.016 + wavePhase * 0.8) * (height * 0.36 * waveAmplitude);
+      waveCanvasCtx.lineTo(x, y);
+    }
+    waveCanvasCtx.lineTo(width, height);
+    waveCanvasCtx.closePath();
+    waveCanvasCtx.fill();
+    waveCanvasCtx.restore();
+
+    // 2번 파도 레이어 (전면 날렵한 발광 파도)
+    waveCanvasCtx.save();
+    const grad2 = waveCanvasCtx.createLinearGradient(0, 0, width, 0);
+    grad2.addColorStop(0, color2);
+    grad2.addColorStop(0.5, color1);
+    grad2.addColorStop(1, color2);
+    waveCanvasCtx.strokeStyle = grad2;
+    waveCanvasCtx.lineWidth = 1.8;
+    waveCanvasCtx.globalAlpha = 0.95;
+    waveCanvasCtx.shadowColor = color1;
+    waveCanvasCtx.shadowBlur = 6;
+
+    waveCanvasCtx.beginPath();
+    for (let x = 0; x <= width; x += 3) {
+      const y = height / 2 + Math.sin(x * 0.024 + wavePhase * 1.25) * Math.cos(x * 0.01 + wavePhase * 0.45) * (height * 0.42 * waveAmplitude);
+      if (x === 0) waveCanvasCtx.moveTo(x, y);
+      else waveCanvasCtx.lineTo(x, y);
+    }
+    waveCanvasCtx.stroke();
+    waveCanvasCtx.restore();
+
+    // 부드러운 전진 속도
+    wavePhase += appState.isPlaying ? 0.04 : 0.01;
+    waveAnimFrame = requestAnimationFrame(renderWave);
+  }
+
+  renderWave();
 }
 
 function setVisualizerState(isPlaying) {
@@ -716,6 +806,7 @@ function openFocusMode() {
   if (el.focusOverlay) el.focusOverlay.classList.remove('hidden');
   if (el.focusPlName) el.focusPlName.textContent = currentPl.name;
   if (el.btnFocusMode) el.btnFocusMode.classList.add('active');
+  if (el.btnFocusModeBar) el.btnFocusModeBar.classList.add('active');
   if (el.btnMobileFocus) el.btnMobileFocus.classList.add('active');
 
   renderFocusTrackList();
@@ -733,6 +824,7 @@ function closeFocusMode() {
   isFocusModeOpen = false;
   if (el.focusOverlay) el.focusOverlay.classList.add('hidden');
   if (el.btnFocusMode) el.btnFocusMode.classList.remove('active');
+  if (el.btnFocusModeBar) el.btnFocusModeBar.classList.remove('active');
   if (el.btnMobileFocus) el.btnMobileFocus.classList.remove('active');
 }
 
