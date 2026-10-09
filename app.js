@@ -209,8 +209,26 @@ async function fetchVideoMetadata(videoId) {
   };
 }
 
-/* ==================== 영상 색감 자동 추출 ==================== */
+/* ==================== 영상 색감 자동 추출 (초고속 캐싱 & 백그라운드 프리로드) ==================== */
+const videoColorCache = new Map();
+
+function applyColorToCSS(color1, color2, glowStr, gradStr) {
+  document.documentElement.style.setProperty('--dynamic-video-color', color1);
+  document.documentElement.style.setProperty('--dynamic-video-color-2', color2);
+  document.documentElement.style.setProperty('--dynamic-video-glow', glowStr);
+  document.documentElement.style.setProperty('--dynamic-video-gradient', gradStr);
+}
+
 function extractAndApplyVideoColor(thumbnailUrl, videoId) {
+  if (videoColorCache.has(videoId)) {
+    const cached = videoColorCache.get(videoId);
+    applyColorToCSS(cached.color1, cached.color2, cached.glowStr, cached.gradStr);
+    return;
+  }
+
+  // 빠른 즉각 반응을 위한 해시 기반 기본 색상 즉시 적용 (0ms)
+  fallbackColorFromId(videoId);
+
   const img = new Image();
   img.crossOrigin = 'Anonymous';
   img.src = thumbnailUrl;
@@ -260,10 +278,12 @@ function extractAndApplyVideoColor(thumbnailUrl, videoId) {
       const glowStr = `rgba(${r}, ${g}, ${b}, 0.45)`;
       const gradStr = `linear-gradient(90deg, ${color1}, ${color2})`;
 
-      document.documentElement.style.setProperty('--dynamic-video-color', color1);
-      document.documentElement.style.setProperty('--dynamic-video-color-2', color2);
-      document.documentElement.style.setProperty('--dynamic-video-glow', glowStr);
-      document.documentElement.style.setProperty('--dynamic-video-gradient', gradStr);
+      videoColorCache.set(videoId, { color1, color2, glowStr, gradStr });
+
+      const currentPl = getCurrentPlaylist();
+      if (currentPl && currentPl.tracks[appState.currentTrackIndex]?.id === videoId) {
+        applyColorToCSS(color1, color2, glowStr, gradStr);
+      }
     } catch (err) {
       fallbackColorFromId(videoId);
     }
@@ -285,10 +305,7 @@ function fallbackColorFromId(videoId) {
   const glowStr = `hsla(${hue1}, 85%, 60%, 0.4)`;
   const gradStr = `linear-gradient(90deg, ${color1}, ${color2})`;
 
-  document.documentElement.style.setProperty('--dynamic-video-color', color1);
-  document.documentElement.style.setProperty('--dynamic-video-color-2', color2);
-  document.documentElement.style.setProperty('--dynamic-video-glow', glowStr);
-  document.documentElement.style.setProperty('--dynamic-video-gradient', gradStr);
+  applyColorToCSS(color1, color2, glowStr, gradStr);
 }
 
 /* ==================== YouTube IFrame Player ==================== */
@@ -300,12 +317,13 @@ window.onYouTubeIframeAPIReady = function() {
     width: '100%',
     playerVars: {
       playsinline: 1,
-      autoplay: 0,
+      autoplay: 1,
       controls: 1,
       rel: 0,
       enablejsapi: 1,
       modestbranding: 1,
-      origin: originUrl
+      origin: originUrl,
+      iv_load_policy: 3
     },
     events: {
       onReady: onPlayerReady,
@@ -337,6 +355,7 @@ function onPlayerStateChange(event) {
     updatePlayPauseUI(true);
     startProgressTimer();
     setVisualizerState(true);
+    preloadUpcomingTracks();
   } else if (event.data === YT.PlayerState.PAUSED) {
     appState.isPlaying = false;
     updatePlayPauseUI(false);
@@ -356,7 +375,7 @@ function onPlayerError(event) {
   showStatusMsg(errorMsg, 'error');
   setTimeout(() => {
     playNextTrack();
-  }, 1800);
+  }, 400);
 }
 
 /* ==================== 재생바 위 파형 ==================== */
@@ -381,6 +400,23 @@ function setVisualizerState(isPlaying) {
       el.bottomPlayerBar.classList.add('playing');
     } else {
       el.bottomPlayerBar.classList.remove('playing');
+    }
+  }
+}
+
+/* ==================== 다음 트랙 프리로드 ==================== */
+function preloadUpcomingTracks() {
+  const currentPl = getCurrentPlaylist();
+  if (!currentPl || currentPl.tracks.length <= 1) return;
+
+  const nextIdx = (appState.currentTrackIndex + 1) % currentPl.tracks.length;
+  const nextTrack = currentPl.tracks[nextIdx];
+  if (nextTrack) {
+    const preImg = new Image();
+    preImg.crossOrigin = 'Anonymous';
+    preImg.src = nextTrack.thumbnail;
+    if (!videoColorCache.has(nextTrack.id)) {
+      extractAndApplyVideoColor(nextTrack.thumbnail, nextTrack.id);
     }
   }
 }
@@ -461,6 +497,14 @@ function playTrackByIndex(index) {
   appState.currentTrackIndex = index;
   const track = currentPl.tracks[index];
 
+  // 즉각 반응: 재생바 및 시간 텍스트 즉시 0으로 초기화 (이전 곡 잔상 제거)
+  el.progressFilled.style.width = '0%';
+  el.timeCurrent.textContent = '0:00';
+  el.timeTotal.textContent = '0:00';
+  appState.isPlaying = true;
+  updatePlayPauseUI(true);
+  setVisualizerState(true);
+
   extractAndApplyVideoColor(track.thumbnail, track.id);
   updateNowPlayingInfo(track);
   highlightActiveTrack();
@@ -470,16 +514,23 @@ function playTrackByIndex(index) {
   }
 
   if (ytPlayer && isPlayerReady) {
-    ytPlayer.loadVideoById({
-      videoId: track.id,
-      startSeconds: 0
-    });
-    appState.isPlaying = true;
-    updatePlayPauseUI(true);
-    setVisualizerState(true);
+    try {
+      ytPlayer.loadVideoById({
+        videoId: track.id,
+        startSeconds: 0
+      });
+    } catch (e) {
+      try {
+        ytPlayer.loadVideoById(track.id, 0);
+      } catch (err) {}
+    }
+    startProgressTimer();
   } else {
     pendingVideoLoad = track.id;
   }
+
+  // 다음 트랙 백그라운드 프리로드
+  preloadUpcomingTracks();
 }
 
 function playNextShuffledTrack() {
