@@ -60,6 +60,7 @@ const el = {
   
   formAddTrack: document.getElementById('form-add-track'),
   inputYoutubeUrl: document.getElementById('input-youtube-url'),
+  btnPasteUrl: document.getElementById('btn-paste-url'),
   btnSubmitAdd: document.getElementById('btn-submit-add'),
   urlStatus: document.getElementById('url-status'),
   
@@ -635,10 +636,12 @@ function setupSeekbarDragEvents() {
   bar.addEventListener('touchcancel', endTouch);
 }
 
-/* ==================== 트랙 드래그 앤 드롭 ==================== */
+/* ==================== 트랙 드래그 앤 드롭 (데스크탑 & 모바일 터치 지원) ==================== */
 function setupTrackDragAndDrop(li, index) {
   li.setAttribute('draggable', 'true');
+  const dragHandle = li.querySelector('.drag-handle');
 
+  // 1. 데스크탑 HTML5 Drag & Drop
   li.addEventListener('dragstart', (e) => {
     draggedTrackIndex = index;
     li.classList.add('dragging');
@@ -694,6 +697,68 @@ function setupTrackDragAndDrop(li, index) {
 
     reorderTracks(draggedTrackIndex, targetIndex);
   });
+
+  // 2. 모바일 터치 스와이프 순서 변경 지원
+  if (dragHandle) {
+    let touchStartY = 0;
+    let currentDropTarget = null;
+
+    dragHandle.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      touchStartY = e.touches[0].clientY;
+      draggedTrackIndex = index;
+      li.classList.add('dragging');
+    }, { passive: true });
+
+    dragHandle.addEventListener('touchmove', (e) => {
+      if (draggedTrackIndex === null || e.touches.length !== 1) return;
+      e.preventDefault();
+
+      const touch = e.touches[0];
+      const targetElem = document.elementFromPoint(touch.clientX, touch.clientY);
+      const targetLi = targetElem ? targetElem.closest('.track-item') : null;
+
+      document.querySelectorAll('.track-item').forEach(item => {
+        item.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+
+      if (targetLi && targetLi !== li) {
+        currentDropTarget = targetLi;
+        const rect = targetLi.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        if (touch.clientY < midY) {
+          targetLi.classList.add('drag-over-top');
+        } else {
+          targetLi.classList.add('drag-over-bottom');
+        }
+      } else {
+        currentDropTarget = null;
+      }
+    }, { passive: false });
+
+    const finishTouchDrag = () => {
+      if (draggedTrackIndex === null) return;
+      li.classList.remove('dragging');
+
+      if (currentDropTarget) {
+        const items = Array.from(el.trackList.querySelectorAll('.track-item'));
+        const targetIdx = items.indexOf(currentDropTarget);
+        if (targetIdx !== -1 && targetIdx !== draggedTrackIndex) {
+          reorderTracks(draggedTrackIndex, targetIdx);
+        }
+      }
+
+      document.querySelectorAll('.track-item').forEach(item => {
+        item.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+
+      draggedTrackIndex = null;
+      currentDropTarget = null;
+    };
+
+    dragHandle.addEventListener('touchend', finishTouchDrag);
+    dragHandle.addEventListener('touchcancel', finishTouchDrag);
+  }
 }
 
 function reorderTracks(fromIndex, toIndex) {
@@ -1273,13 +1338,35 @@ function setupEventListeners() {
     saveState();
   });
 
-  el.btnBackupData.addEventListener('click', exportBackup);
-  el.btnRestoreData.addEventListener('click', () => el.fileRestore.click());
-  el.fileRestore.addEventListener('change', (e) => {
-    if (e.target.files && e.target.files[0]) {
-      importBackup(e.target.files[0]);
-    }
-  });
+  // 클립보드 붙여넣기 버튼
+  if (el.btnPasteUrl) {
+    el.btnPasteUrl.addEventListener('click', async () => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          const text = await navigator.clipboard.readText();
+          if (text) {
+            el.inputYoutubeUrl.value = text.trim();
+            el.inputYoutubeUrl.focus();
+          }
+        } else {
+          el.inputYoutubeUrl.focus();
+        }
+      } catch (err) {
+        el.inputYoutubeUrl.focus();
+      }
+    });
+  }
+
+  // 백업 및 복원
+  if (el.btnBackupData) el.btnBackupData.addEventListener('click', exportBackup);
+  if (el.btnRestoreData) el.btnRestoreData.addEventListener('click', () => el.fileRestore.click());
+  if (el.fileRestore) {
+    el.fileRestore.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        importBackup(e.target.files[0]);
+      }
+    });
+  }
 
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space' && e.target.tagName !== 'INPUT') {
@@ -1287,6 +1374,74 @@ function setupEventListeners() {
       togglePlayPause();
     }
   });
+
+  setupMobileGestures();
+}
+
+/* ==================== 📱 모바일 스와이프 제스처 ==================== */
+function setupMobileGestures() {
+  // 1. 하단 플레이어 바 좌/우 스와이프 (이전곡 / 다음곡 넘기기)
+  const mobileTopRow = document.querySelector('.mobile-player-top-row');
+  if (mobileTopRow) {
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    mobileTopRow.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+      }
+    }, { passive: true });
+
+    mobileTopRow.addEventListener('touchend', (e) => {
+      if (e.changedTouches.length === 1) {
+        const diffX = e.changedTouches[0].clientX - touchStartX;
+        const diffY = e.changedTouches[0].clientY - touchStartY;
+
+        // 수평 스와이프 판정 (50px 이상 & 수평이 수직보다 클 때)
+        if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
+          if (diffX < 0) {
+            // 왼쪽으로 스와이프 -> 다음 곡
+            playNextTrack();
+          } else {
+            // 오른쪽으로 스와이프 -> 이전 곡
+            playPrevTrack();
+          }
+        }
+      }
+    }, { passive: true });
+  }
+
+  // 2. 사이드바 좌측 스와이프로 닫기
+  if (el.sidebar) {
+    let sbStartX = 0;
+    el.sidebar.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) sbStartX = e.touches[0].clientX;
+    }, { passive: true });
+
+    el.sidebar.addEventListener('touchend', (e) => {
+      if (e.changedTouches.length === 1) {
+        const diffX = e.changedTouches[0].clientX - sbStartX;
+        if (diffX < -60) {
+          closeSidebar();
+        }
+      }
+    }, { passive: true });
+  }
+
+  // 3. 화면 왼쪽 끝에서 오른쪽으로 스와이프 시 사이드바 열기
+  window.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1 && e.touches[0].clientX < 25) {
+      const startX = e.touches[0].clientX;
+      const onEdgeMove = (moveEvt) => {
+        if (moveEvt.touches.length === 1 && moveEvt.touches[0].clientX - startX > 60) {
+          openSidebar();
+          window.removeEventListener('touchmove', onEdgeMove);
+        }
+      };
+      window.addEventListener('touchmove', onEdgeMove, { passive: true, once: true });
+    }
+  }, { passive: true });
 }
 
 /* ==================== 초기화 ==================== */

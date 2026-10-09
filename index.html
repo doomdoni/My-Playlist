@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0c0d12">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="format-detection" content="telephone=no">
   <title>My Playlist - 유튜브 연속재생 플레이어</title>
   <!-- Google Fonts & Font Awesome Icons -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -105,6 +109,9 @@
           <div class="input-group">
             <i class="fa-solid fa-link input-icon"></i>
             <input type="text" id="input-youtube-url" placeholder="유튜브 링크 입력 (watch?v=, youtu.be/ 등)" required autocomplete="off">
+            <button type="button" id="btn-paste-url" class="btn-paste" title="클립보드 붙여넣기">
+              <i class="fa-solid fa-paste"></i>
+            </button>
           </div>
           <button type="submit" class="btn-primary btn-touch" id="btn-submit-add">
             <i class="fa-solid fa-plus"></i> <span class="btn-add-text">추가</span>
