@@ -10,11 +10,15 @@
   <title>My Playlist - 유튜브 연속재생 플레이어</title>
   <!-- YouTube & Media Preconnections for High-Speed Loading -->
   <link rel="preconnect" href="https://www.youtube.com">
+  <link rel="preconnect" href="https://www.youtube-nocookie.com">
   <link rel="preconnect" href="https://i.ytimg.com">
+  <link rel="preconnect" href="https://s.ytimg.com">
   <link rel="preconnect" href="https://www.google.com">
   <link rel="preconnect" href="https://googlevideo.com" crossorigin>
   <link rel="dns-prefetch" href="https://www.youtube.com">
+  <link rel="dns-prefetch" href="https://www.youtube-nocookie.com">
   <link rel="dns-prefetch" href="https://i.ytimg.com">
+  <link rel="dns-prefetch" href="https://s.ytimg.com">
   <link rel="dns-prefetch" href="https://manifest.googlevideo.com">
   <!-- Google Fonts & Font Awesome Icons -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -69,13 +73,18 @@
       </div>
 
       <div class="sidebar-footer">
-        <button id="btn-backup-data" class="btn-outline-sm" title="데이터 백업">
-          <i class="fa-solid fa-download"></i> 내보내기
-        </button>
-        <button id="btn-restore-data" class="btn-outline-sm" title="데이터 복원">
-          <i class="fa-solid fa-upload"></i> 가져오기
-        </button>
-        <input type="file" id="file-restore" accept=".json" style="display:none;">
+        <div class="sidebar-footer-actions">
+          <button id="btn-backup-data" class="btn-outline-sm" title="데이터 백업">
+            <i class="fa-solid fa-download"></i> 내보내기
+          </button>
+          <button id="btn-restore-data" class="btn-outline-sm" title="데이터 복원">
+            <i class="fa-solid fa-upload"></i> 가져오기
+          </button>
+          <input type="file" id="file-restore" accept=".json" style="display:none;">
+        </div>
+        <div class="app-version-wrapper">
+          <span class="app-version-badge">v2.4.0</span>
+        </div>
       </div>
     </aside>
 
@@ -198,7 +207,10 @@
           </div>
           <div class="mobile-text">
             <div id="mobile-bar-title" class="mobile-title">곡을 선택해주세요</div>
-            <div id="mobile-bar-artist" class="mobile-artist">YouTube Player</div>
+            <div class="mobile-artist-row">
+              <span id="mobile-bar-artist" class="mobile-artist">YouTube Player</span>
+              <span class="app-version-tag">v2.4.0</span>
+            </div>
           </div>
         </div>
         <div class="mobile-main-actions">
@@ -224,7 +236,10 @@
         </div>
         <div class="bar-info">
           <div id="bar-title" class="bar-title">재생할 곡을 선택해주세요</div>
-          <div id="bar-artist" class="bar-artist">YouTube Player</div>
+          <div class="bar-artist-row">
+            <span id="bar-artist" class="bar-artist">YouTube Player</span>
+            <span class="app-version-tag">v2.4.0</span>
+          </div>
         </div>
       </div>
 

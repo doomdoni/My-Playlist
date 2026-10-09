@@ -196,39 +196,48 @@ function extractStrictYouTubeId(inputUrl) {
 }
 
 async function fetchVideoMetadata(videoId) {
-  try {
-    const response = await fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`);
-    if (response.ok) {
-      const data = await response.json();
-      if (data.title) {
-        return {
-          title: data.title,
-          author: data.author_name || 'YouTube',
-          thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
-        };
-      }
-    }
-  } catch (e) {}
-
-  try {
-    const response = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`);
-    if (response.ok) {
-      const data = await response.json();
-      if (data.title) {
-        return {
-          title: data.title,
-          author: data.author_name || 'YouTube',
-          thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
-        };
-      }
-    }
-  } catch (e) {}
-
-  return {
+  const defaultResult = {
     title: `YouTube 영상 (${videoId})`,
     author: 'YouTube',
     thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
   };
+
+  const fetchWithTimeout = async (url, timeoutMs = 2200) => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (response.ok) {
+        return await response.json();
+      }
+    } catch (e) {}
+    return null;
+  };
+
+  try {
+    const noembedData = await fetchWithTimeout(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`, 2200);
+    if (noembedData && noembedData.title) {
+      return {
+        title: noembedData.title,
+        author: noembedData.author_name || 'YouTube',
+        thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+      };
+    }
+  } catch (e) {}
+
+  try {
+    const oembedData = await fetchWithTimeout(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, 2200);
+    if (oembedData && oembedData.title) {
+      return {
+        title: oembedData.title,
+        author: oembedData.author_name || 'YouTube',
+        thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+      };
+    }
+  } catch (e) {}
+
+  return defaultResult;
 }
 
 /* ==================== 영상 색감 자동 추출 (초고속 캐싱 & 백그라운드 프리로드) ==================== */
@@ -767,17 +776,11 @@ function renderFocusTrackList() {
       </div>
     `;
 
-    const handleSelect = (e) => {
+    card.addEventListener('click', (e) => {
       e.stopPropagation();
       if (idx !== appState.currentTrackIndex) {
         playTrackByIndex(idx);
       }
-    };
-
-    card.addEventListener('click', handleSelect);
-    card.addEventListener('touchend', (e) => {
-      // Prevent double trigger on mobile
-      handleSelect(e);
     });
 
     el.focusTrackList.appendChild(card);
@@ -1443,6 +1446,24 @@ function updateVolumeIcon(vol) {
   if (el.iconMobileVolume) el.iconMobileVolume.className = iconClass;
 }
 
+function updateVideoVisibilityUI() {
+  const isVisible = appState.settings.isVideoVisible !== false;
+  if (el.videoWrapper) {
+    el.videoWrapper.classList.toggle('minimized', !isVisible);
+  }
+  if (el.contentBody) {
+    el.contentBody.classList.toggle('video-minimized', !isVisible);
+  }
+  if (el.btnToggleVideo) {
+    el.btnToggleVideo.classList.toggle('active', !isVisible);
+    el.btnToggleVideo.title = isVisible ? '영상 화면 숨기기 (오디오만 재생)' : '영상 화면 보기';
+    const icon = el.btnToggleVideo.querySelector('i');
+    if (icon) {
+      icon.className = isVisible ? 'fa-solid fa-display' : 'fa-solid fa-eye-slash';
+    }
+  }
+}
+
 function showStatusMsg(msg, type = 'error') {
   el.urlStatus.textContent = msg;
   el.urlStatus.className = `status-msg ${type}`;
@@ -1787,17 +1808,13 @@ function setupEventListeners() {
   el.btnMute.addEventListener('click', toggleMute);
   if (el.btnMobileMute) el.btnMobileMute.addEventListener('click', toggleMute);
 
-  el.btnToggleVideo.addEventListener('click', () => {
-    appState.settings.isVideoVisible = !appState.settings.isVideoVisible;
-    if (appState.settings.isVideoVisible) {
-      el.videoWrapper.classList.remove('minimized');
-      el.btnToggleVideo.classList.remove('active');
-    } else {
-      el.videoWrapper.classList.add('minimized');
-      el.btnToggleVideo.classList.add('active');
-    }
-    saveState();
-  });
+  if (el.btnToggleVideo) {
+    el.btnToggleVideo.addEventListener('click', () => {
+      appState.settings.isVideoVisible = !appState.settings.isVideoVisible;
+      updateVideoVisibilityUI();
+      saveState();
+    });
+  }
 
   // 클립보드 붙여넣기 버튼
   if (el.btnPasteUrl) {
@@ -1964,11 +1981,7 @@ function init() {
   updateRepeatUI();
   updateShuffleUI();
   updateNowPlayingInfo(null);
-  
-  if (!appState.settings.isVideoVisible) {
-    el.videoWrapper.classList.add('minimized');
-    el.btnToggleVideo.classList.add('active');
-  }
+  updateVideoVisibilityUI();
 }
 
 document.addEventListener('DOMContentLoaded', init);
