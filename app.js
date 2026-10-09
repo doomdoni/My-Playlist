@@ -5,6 +5,7 @@
 
 const DEFAULT_DATA = {
   playlists: [],
+  cloudPlaylists: [],
   activePlaylistId: null,
   settings: {
     volume: 80,
@@ -16,6 +17,7 @@ const DEFAULT_DATA = {
 
 let appState = {
   playlists: [],
+  cloudPlaylists: [],
   activePlaylistId: null,
   currentTrackIndex: -1,
   isPlaying: false,
@@ -991,11 +993,11 @@ function renderFocusTrackList() {
     const card = document.createElement('div');
     const isActive = idx === appState.currentTrackIndex;
     card.className = `focus-track-card ${isActive ? 'active' : ''}`;
-    card.dataset.index = idx;
-
+    const vid = track.videoId || track.id;
+    const thumbUrl = track.thumbnail || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
     card.innerHTML = `
       <div class="focus-thumb-box">
-        <img class="focus-thumb-img" src="${track.thumbnail}" alt="${escapeHtml(track.title)}" onerror="this.src='https://i.ytimg.com/vi/${track.id}/hqdefault.jpg'">
+        <img class="focus-thumb-img" src="${thumbUrl}" alt="${escapeHtml(track.title)}" onerror="this.onerror=null; this.src='https://i.ytimg.com/vi/${vid}/mqdefault.jpg';">
         ${isActive ? `
           <div class="focus-playing-indicator">
             <div class="focus-equalizer-waves">
@@ -1474,14 +1476,27 @@ function reorderTracks(fromIndex, toIndex) {
 }
 
 /* ==================== UI 렌더링 & 업데이트 ==================== */
+function getAllPlaylists() {
+  return [...(appState.playlists || []), ...(appState.cloudPlaylists || [])];
+}
+
 function getCurrentPlaylist() {
-  return appState.playlists.find(p => p.id === appState.activePlaylistId);
+  const all = getAllPlaylists();
+  return all.find(p => p.id === appState.activePlaylistId) || (appState.playlists && appState.playlists[0]) || (appState.cloudPlaylists && appState.cloudPlaylists[0]) || null;
+}
+
+function isCloudPlaylist(id) {
+  return Array.isArray(appState.cloudPlaylists) && appState.cloudPlaylists.some(p => p.id === id);
 }
 
 function renderPlaylists() {
   el.playlistList.innerHTML = '';
 
-  if (appState.playlists.length === 0) {
+  const hasLocal = appState.playlists && appState.playlists.length > 0;
+  const isCloudConnected = !!activeSyncRoomId;
+  const hasCloud = isCloudConnected && appState.cloudPlaylists && appState.cloudPlaylists.length > 0;
+
+  if (!hasLocal && !hasCloud) {
     el.sidebarEmptyMsg.classList.remove('hidden');
     el.headerActions.classList.add('hidden');
     return;
@@ -1490,22 +1505,124 @@ function renderPlaylists() {
   el.sidebarEmptyMsg.classList.add('hidden');
   el.headerActions.classList.remove('hidden');
 
-  appState.playlists.forEach(pl => {
-    const li = document.createElement('li');
-    li.className = `playlist-item ${pl.id === appState.activePlaylistId ? 'active' : ''}`;
-    li.innerHTML = `
-      <div class="playlist-item-left">
-        <i class="fa-solid fa-compact-disc"></i>
-        <span>${escapeHtml(pl.name)}</span>
-      </div>
-      <span class="playlist-item-count">${pl.tracks.length}곡</span>
-    `;
-    li.addEventListener('click', () => {
-      selectPlaylist(pl.id);
-      closeSidebar();
+  // 1. 📂 내 로컬 플레이리스트 섹션 (영구 보존)
+  const localHeader = document.createElement('div');
+  localHeader.className = 'sidebar-section-header';
+  localHeader.innerHTML = `
+    <span><i class="fa-solid fa-folder"></i> 내 로컬 플레이리스트</span>
+    <button type="button" class="btn-icon-xs" id="btn-create-local-inline" title="새 로컬 플레이리스트">
+      <i class="fa-solid fa-plus"></i>
+    </button>
+  `;
+  el.playlistList.appendChild(localHeader);
+  const btnCreateLocal = localHeader.querySelector('#btn-create-local-inline');
+  if (btnCreateLocal) {
+    btnCreateLocal.addEventListener('click', (e) => {
+      e.stopPropagation();
+      createNewPlaylist(null, false);
     });
-    el.playlistList.appendChild(li);
-  });
+  }
+
+  if (hasLocal) {
+    appState.playlists.forEach(pl => {
+      const li = document.createElement('li');
+      li.className = `playlist-item ${pl.id === appState.activePlaylistId ? 'active' : ''}`;
+      li.innerHTML = `
+        <div class="playlist-item-left">
+          <i class="fa-solid fa-compact-disc"></i>
+          <span>${escapeHtml(pl.name)}</span>
+        </div>
+        <span class="playlist-item-count">${(pl.tracks || []).length}곡</span>
+      `;
+      li.addEventListener('click', () => {
+        selectPlaylist(pl.id);
+        closeSidebar();
+      });
+      el.playlistList.appendChild(li);
+    });
+  } else {
+    const emptyLocalLi = document.createElement('li');
+    emptyLocalLi.className = 'sub-text';
+    emptyLocalLi.style.padding = '6px 12px';
+    emptyLocalLi.textContent = '로컬 플레이리스트가 없습니다.';
+    el.playlistList.appendChild(emptyLocalLi);
+  }
+
+  // 2. ☁️ 클라우드 동기화 플레이리스트 섹션 (연결 시만 표시)
+  if (isCloudConnected) {
+    const cloudHeader = document.createElement('div');
+    cloudHeader.className = 'sidebar-section-header cloud-header';
+    cloudHeader.innerHTML = `
+      <span><i class="fa-solid fa-cloud"></i> 클라우드 동기화 (${escapeHtml(activeSyncRoomId)})</span>
+      <button type="button" class="btn-icon-xs" id="btn-create-cloud-inline" title="새 클라우드 플레이리스트">
+        <i class="fa-solid fa-plus"></i>
+      </button>
+    `;
+    el.playlistList.appendChild(cloudHeader);
+    const btnCreateCloud = cloudHeader.querySelector('#btn-create-cloud-inline');
+    if (btnCreateCloud) {
+      btnCreateCloud.addEventListener('click', (e) => {
+        e.stopPropagation();
+        createNewPlaylist(null, true);
+      });
+    }
+
+    if (hasCloud) {
+      appState.cloudPlaylists.forEach(pl => {
+        const li = document.createElement('li');
+        li.className = `playlist-item cloud-item ${pl.id === appState.activePlaylistId ? 'active' : ''}`;
+        li.innerHTML = `
+          <div class="playlist-item-left">
+            <i class="fa-solid fa-cloud"></i>
+            <span>${escapeHtml(pl.name)}</span>
+            <span class="cloud-pill">동기화</span>
+          </div>
+          <span class="playlist-item-count">${(pl.tracks || []).length}곡</span>
+          <button type="button" class="btn-copy-to-local" title="내 로컬에 영구 복사">
+            <i class="fa-solid fa-download"></i>
+          </button>
+        `;
+
+        li.addEventListener('click', (e) => {
+          if (e.target.closest('.btn-copy-to-local')) return;
+          selectPlaylist(pl.id);
+          closeSidebar();
+        });
+
+        const btnCopy = li.querySelector('.btn-copy-to-local');
+        if (btnCopy) {
+          btnCopy.addEventListener('click', (e) => {
+            e.stopPropagation();
+            copyCloudPlaylistToLocal(pl.id);
+          });
+        }
+
+        el.playlistList.appendChild(li);
+      });
+    } else {
+      const emptyCloudLi = document.createElement('li');
+      emptyCloudLi.className = 'sub-text';
+      emptyCloudLi.style.padding = '6px 12px';
+      emptyCloudLi.textContent = '클라우드에 등록된 플레이리스트가 없습니다.';
+      el.playlistList.appendChild(emptyCloudLi);
+    }
+  }
+}
+
+function copyCloudPlaylistToLocal(cloudPlId) {
+  const cloudPl = (appState.cloudPlaylists || []).find(p => p.id === cloudPlId);
+  if (!cloudPl) return;
+
+  const newLocalPl = {
+    id: 'pl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    name: `${cloudPl.name} (로컬)`,
+    tracks: JSON.parse(JSON.stringify(cloudPl.tracks || []))
+  };
+
+  appState.playlists.push(newLocalPl);
+  saveState();
+  renderPlaylists();
+  alert(`'${cloudPl.name}' 플레이리스트가 내 로컬 플레이리스트에 안전하게 저장되었습니다!`);
 }
 
 function renderTracks() {
@@ -1521,11 +1638,12 @@ function renderTracks() {
     return;
   }
 
+  const isCloud = isCloudPlaylist(currentPl.id);
   el.headerActions.classList.remove('hidden');
-  el.currentPlaylistTitle.textContent = currentPl.name;
-  el.currentPlaylistMeta.textContent = `총 ${currentPl.tracks.length}개의 트랙`;
+  el.currentPlaylistTitle.innerHTML = `${escapeHtml(currentPl.name)} ${isCloud ? '<span class="cloud-pill" style="font-size:0.75rem; vertical-align:middle;">클라우드</span>' : ''}`;
+  el.currentPlaylistMeta.textContent = `총 ${(currentPl.tracks || []).length}개의 트랙 ${isCloud ? '• 다른 기기와 실시간 동기화 중' : '• 로컬 전용'}`;
 
-  if (currentPl.tracks.length === 0) {
+  if (!currentPl.tracks || currentPl.tracks.length === 0) {
     el.emptyTrackMsg.classList.remove('hidden');
     el.emptyStateText.innerHTML = `<strong>'${escapeHtml(currentPl.name)}'</strong> 플레이리스트가 비어있습니다.<br>상단 입력창에 유튜브 링크를 붙여넣어 노래를 추가해보세요!`;
     return;
@@ -1534,6 +1652,8 @@ function renderTracks() {
   }
 
   currentPl.tracks.forEach((track, idx) => {
+    const videoId = track.videoId || track.id;
+    const thumbUrl = track.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
     const li = document.createElement('li');
     li.className = `track-item ${idx === appState.currentTrackIndex ? 'active' : ''}`;
     li.innerHTML = `
@@ -1542,7 +1662,7 @@ function renderTracks() {
       </div>
       <div class="track-index">${idx + 1}</div>
       <div class="track-info">
-        <img class="track-thumb" src="${track.thumbnail}" alt="thumb" onerror="this.src='https://i.ytimg.com/vi/${track.id}/hqdefault.jpg'">
+        <img class="track-thumb" src="${thumbUrl}" alt="thumb" onerror="this.onerror=null; this.src='https://i.ytimg.com/vi/${videoId}/mqdefault.jpg';">
         <div class="track-text-details">
           <span class="track-title" title="${escapeHtml(track.title)}">${escapeHtml(track.title)}</span>
         </div>
@@ -1595,11 +1715,14 @@ function updateNowPlayingInfo(track) {
     return;
   }
 
+  const vid = track.videoId || track.id;
+  const thumbUrl = track.thumbnail || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`;
+
   el.npTitle.textContent = track.title;
   el.npSubtitle.textContent = '재생 중';
   
   if (el.npThumbnail) {
-    el.npThumbnail.src = track.thumbnail;
+    el.npThumbnail.src = thumbUrl;
     el.npThumbnail.classList.remove('hidden');
   }
   if (el.npPlaceholderIcon) el.npPlaceholderIcon.classList.add('hidden');
@@ -1611,7 +1734,7 @@ function updateNowPlayingInfo(track) {
   el.barTitle.textContent = track.title;
   el.barArtist.textContent = plName;
   if (el.barThumb) {
-    el.barThumb.src = track.thumbnail;
+    el.barThumb.src = thumbUrl;
     el.barThumb.classList.remove('hidden');
   }
   if (el.desktopPlaceholderIcon) el.desktopPlaceholderIcon.classList.add('hidden');
@@ -1620,7 +1743,7 @@ function updateNowPlayingInfo(track) {
   if (el.mobileBarTitle) el.mobileBarTitle.textContent = track.title;
   if (el.mobileBarArtist) el.mobileBarArtist.textContent = plName;
   if (el.mobileBarThumb) {
-    el.mobileBarThumb.src = track.thumbnail;
+    el.mobileBarThumb.src = thumbUrl;
     el.mobileBarThumb.classList.remove('hidden');
   }
   if (el.mobilePlaceholderIcon) el.mobilePlaceholderIcon.classList.add('hidden');
@@ -1764,20 +1887,31 @@ function selectPlaylist(id) {
   renderTracks();
 }
 
-function createNewPlaylist(defaultName) {
-  const defaultTitle = defaultName || `내 플레이리스트 ${appState.playlists.length + 1}`;
-  const name = prompt('새 플레이리스트 이름을 입력하세요:', defaultTitle);
+function createNewPlaylist(defaultName, forceCloud = null) {
+  const isTargetCloud = forceCloud !== null ? forceCloud : (isCloudPlaylist(appState.activePlaylistId));
+  const list = isTargetCloud ? (appState.cloudPlaylists || []) : appState.playlists;
+  const prefix = isTargetCloud ? '클라우드' : '내 로컬';
+  const defaultTitle = defaultName || `${prefix} 플레이리스트 ${list.length + 1}`;
+  const name = prompt(`${prefix} 플레이리스트 이름을 입력하세요:`, defaultTitle);
   if (!name || !name.trim()) return null;
 
   const newPl = {
-    id: 'pl-' + Date.now(),
+    id: (isTargetCloud ? 'cpl-' : 'pl-') + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
     name: name.trim(),
     tracks: []
   };
 
-  appState.playlists.push(newPl);
-  selectPlaylist(newPl.id);
-  saveState();
+  if (isTargetCloud) {
+    if (!appState.cloudPlaylists) appState.cloudPlaylists = [];
+    appState.cloudPlaylists.push(newPl);
+    selectPlaylist(newPl.id);
+    scheduleCloudPush();
+  } else {
+    appState.playlists.push(newPl);
+    selectPlaylist(newPl.id);
+    saveState();
+  }
+
   closeSidebar();
   return newPl;
 }
@@ -1790,7 +1924,11 @@ function renameCurrentPlaylist() {
   if (!newName || !newName.trim()) return;
 
   currentPl.name = newName.trim();
-  saveState();
+  if (isCloudPlaylist(currentPl.id)) {
+    scheduleCloudPush();
+  } else {
+    saveState();
+  }
   renderPlaylists();
   renderTracks();
 }
@@ -1799,11 +1937,21 @@ function deleteCurrentPlaylist() {
   const currentPl = getCurrentPlaylist();
   if (!currentPl) return;
 
-  if (confirm(`'${currentPl.name}' 플레이리스트를 삭제하시겠습니까?`)) {
-    appState.playlists = appState.playlists.filter(p => p.id !== currentPl.id);
-    appState.activePlaylistId = appState.playlists[0] ? appState.playlists[0].id : null;
+  const isCloud = isCloudPlaylist(currentPl.id);
+  const typeText = isCloud ? '클라우드 동기화' : '로컬';
+
+  if (confirm(`'${currentPl.name}' (${typeText}) 플레이리스트를 삭제하시겠습니까?`)) {
+    if (isCloud) {
+      appState.cloudPlaylists = appState.cloudPlaylists.filter(p => p.id !== currentPl.id);
+      scheduleCloudPush();
+    } else {
+      appState.playlists = appState.playlists.filter(p => p.id !== currentPl.id);
+      saveState();
+    }
+
+    const remaining = getAllPlaylists();
+    appState.activePlaylistId = remaining[0] ? remaining[0].id : null;
     appState.currentTrackIndex = -1;
-    saveState();
     renderPlaylists();
     renderTracks();
   }
@@ -1819,7 +1967,7 @@ async function addTrackFromUrl(url) {
 
   let currentPl = getCurrentPlaylist();
   if (!currentPl) {
-    const created = createNewPlaylist('🎵 나의 첫 플레이리스트');
+    const created = createNewPlaylist('🎵 나의 첫 플레이리스트', false);
     if (!created) {
       showStatusMsg('먼저 플레이리스트를 생성해주세요.', 'error');
       return;
@@ -1833,12 +1981,20 @@ async function addTrackFromUrl(url) {
     const meta = await fetchVideoMetadata(videoId);
     const newTrack = {
       id: videoId,
+      videoId: videoId,
       title: meta.title,
-      thumbnail: meta.thumbnail
+      thumbnail: meta.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+      author: meta.author || 'YouTube'
     };
 
     currentPl.tracks.push(newTrack);
-    saveState();
+    
+    if (isCloudPlaylist(currentPl.id)) {
+      scheduleCloudPush();
+    } else {
+      saveState();
+    }
+
     renderTracks();
     renderPlaylists();
 
@@ -1864,6 +2020,12 @@ function deleteTrack(index) {
   }
 
   currentPl.tracks.splice(index, 1);
+
+  if (isCloudPlaylist(currentPl.id)) {
+    scheduleCloudPush();
+  } else {
+    saveState();
+  }
 
   if (appState.currentTrackIndex === index) {
     if (currentPl.tracks.length > 0) {
@@ -2002,21 +2164,26 @@ function closeSyncModal() {
 
 // 데이터 직렬화 (초고속 전송 및 완전 복원 지원)
 function serializeSyncPayload() {
+  const cloudList = (appState.cloudPlaylists && appState.cloudPlaylists.length > 0) ? appState.cloudPlaylists : appState.playlists;
   return JSON.stringify({
     type: 'MY_PLAYLIST_SYNC',
     version: 2,
     updatedAt: Date.now(),
     activePlaylistId: appState.activePlaylistId,
-    playlists: appState.playlists.map(pl => ({
+    playlists: (cloudList || []).map(pl => ({
       id: pl.id,
       name: pl.name,
       createdAt: pl.createdAt || Date.now(),
-      tracks: (pl.tracks || []).map(tr => ({
-        id: tr.id,
-        videoId: tr.videoId,
-        title: tr.title,
-        author: tr.author || 'YouTube'
-      }))
+      tracks: (pl.tracks || []).map(tr => {
+        const vid = tr.videoId || tr.id;
+        return {
+          id: vid,
+          videoId: vid,
+          title: tr.title || 'YouTube 영상',
+          author: tr.author || 'YouTube',
+          thumbnail: tr.thumbnail || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`
+        };
+      })
     }))
   });
 }
@@ -2139,6 +2306,25 @@ async function createSyncRoom() {
   showSyncStatus('클라우드 동기화 코드를 안전하게 발급받고 있습니다...', 'info', 0);
 
   try {
+    // 만약 클라우드 플레이리스트가 비어있다면 현재 로컬 플레이리스트를 복사하여 초기 클라우드 플리로 설정
+    if (!appState.cloudPlaylists || appState.cloudPlaylists.length === 0) {
+      appState.cloudPlaylists = (appState.playlists || []).map(pl => ({
+        id: 'cpl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name: pl.name,
+        createdAt: pl.createdAt || Date.now(),
+        tracks: (pl.tracks || []).map(tr => {
+          const vid = tr.videoId || tr.id;
+          return {
+            id: vid,
+            videoId: vid,
+            title: tr.title,
+            author: tr.author || 'YouTube',
+            thumbnail: tr.thumbnail || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`
+          };
+        })
+      }));
+    }
+
     const jsonPayload = serializeSyncPayload();
     const roomCode = await uploadSyncPayloadToCloud(jsonPayload);
 
@@ -2146,6 +2332,7 @@ async function createSyncRoom() {
     localStorage.setItem(SYNC_STORAGE_KEY, activeSyncRoomId);
     lastSyncedTimestamp = Date.now();
     updateSyncUI();
+    renderPlaylists();
     startCloudSyncPolling();
     showSyncStatus(`동기화 코드가 발급되었습니다: ${roomCode}`, 'success', 5000);
   } catch (err) {
@@ -2179,32 +2366,37 @@ async function joinSyncRoom(inputRawCode) {
     const { parsed, rawKey } = await downloadSyncPayloadFromCloud(inputRawCode);
 
     if (parsed && Array.isArray(parsed.playlists)) {
-      // 썸네일 자동 복원 및 데이터 매핑
-      appState.playlists = parsed.playlists.map(pl => ({
-        id: pl.id || `pl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        name: pl.name || '새 플레이리스트',
+      // 썸네일 완전 복원 및 데이터 매핑 (로컬 플레이리스트는 100% 보존!)
+      appState.cloudPlaylists = parsed.playlists.map(pl => ({
+        id: pl.id || `cpl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name: pl.name || '클라우드 플레이리스트',
         createdAt: pl.createdAt || Date.now(),
-        tracks: (pl.tracks || []).map(tr => ({
-          id: tr.id || `track_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          videoId: tr.videoId,
-          title: tr.title || 'YouTube 영상',
-          author: tr.author || 'YouTube',
-          thumbnail: tr.thumbnail || `https://i.ytimg.com/vi/${tr.videoId}/hqdefault.jpg`
-        }))
+        tracks: (pl.tracks || []).map(tr => {
+          const vid = tr.videoId || tr.id;
+          return {
+            id: vid,
+            videoId: vid,
+            title: tr.title || 'YouTube 영상',
+            author: tr.author || 'YouTube',
+            thumbnail: tr.thumbnail || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`
+          };
+        })
       }));
 
-      appState.activePlaylistId = parsed.activePlaylistId || (appState.playlists[0] ? appState.playlists[0].id : null);
+      // 클라우드 플레이리스트를 활성화
+      if (appState.cloudPlaylists.length > 0) {
+        appState.activePlaylistId = appState.cloudPlaylists[0].id;
+      }
       appState.currentTrackIndex = -1;
       lastSyncedTimestamp = parsed.updatedAt || Date.now();
       activeSyncRoomId = rawKey.startsWith('PL-') || rawKey.startsWith('DP-') ? rawKey : 'PL-' + rawKey;
       localStorage.setItem(SYNC_STORAGE_KEY, activeSyncRoomId);
 
-      saveState(false);
       renderPlaylists();
       renderTracks();
       updateSyncUI();
       startCloudSyncPolling();
-      showSyncStatus('동기화 연결 성공! 모든 플레이리스트를 불러왔습니다.', 'success', 5000);
+      showSyncStatus('동기화 연결 성공! 클라우드 플레이리스트를 불러왔습니다.', 'success', 5000);
       if (el.inputSyncCode) el.inputSyncCode.value = '';
     } else {
       throw new Error('올바른 플레이리스트 형식이 아닙니다.');
@@ -2275,29 +2467,28 @@ async function pullStateFromCloud(showToast = false) {
     if (parsed && Array.isArray(parsed.playlists)) {
       const remoteUpdatedAt = parsed.updatedAt || 0;
       if (remoteUpdatedAt > lastSyncedTimestamp) {
-        appState.playlists = parsed.playlists.map(pl => ({
-          id: pl.id || `pl_${Date.now()}`,
-          name: pl.name || '새 플레이리스트',
+        appState.cloudPlaylists = parsed.playlists.map(pl => ({
+          id: pl.id || `cpl_${Date.now()}`,
+          name: pl.name || '클라우드 플레이리스트',
           createdAt: pl.createdAt || Date.now(),
-          tracks: (pl.tracks || []).map(tr => ({
-            id: tr.id || `track_${Date.now()}`,
-            videoId: tr.videoId,
-            title: tr.title || 'YouTube 영상',
-            author: tr.author || 'YouTube',
-            thumbnail: tr.thumbnail || `https://i.ytimg.com/vi/${tr.videoId}/hqdefault.jpg`
-          }))
+          tracks: (pl.tracks || []).map(tr => {
+            const vid = tr.videoId || tr.id;
+            return {
+              id: vid,
+              videoId: vid,
+              title: tr.title || 'YouTube 영상',
+              author: tr.author || 'YouTube',
+              thumbnail: tr.thumbnail || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`
+            };
+          })
         }));
 
-        if (parsed.activePlaylistId) {
-          appState.activePlaylistId = parsed.activePlaylistId;
-        }
         lastSyncedTimestamp = remoteUpdatedAt;
-        saveState(false);
         renderPlaylists();
         renderTracks();
 
         if (showToast) {
-          showSyncStatus('최신 플레이리스트를 업데이트했습니다!', 'success', 3000);
+          showSyncStatus('최신 클라우드 플레이리스트를 업데이트했습니다!', 'success', 3000);
         }
       } else if (showToast) {
         showSyncStatus('이미 최신 상태입니다.', 'info', 2500);
@@ -2314,19 +2505,28 @@ async function pullStateFromCloud(showToast = false) {
 }
 
 function disconnectSyncRoom() {
-  if (!confirm('정말 동기화를 해제하시겠습니까?\n(현재 기기에 저장된 플레이리스트는 삭제되지 않고 안전하게 유지됩니다.)')) {
+  if (!confirm('정말 동기화를 해제하시겠습니까?\n\n* 내 로컬 플레이리스트는 100% 안전하게 유지됩니다.\n* 클라우드 동기화 연결만 해제됩니다.')) {
     return;
   }
 
   activeSyncRoomId = null;
+  appState.cloudPlaylists = [];
   localStorage.removeItem(SYNC_STORAGE_KEY);
   if (syncPollingTimer) {
     clearInterval(syncPollingTimer);
     syncPollingTimer = null;
   }
 
+  // 만약 선택된 플레이리스트가 클라우드였다면 로컬 플레이리스트로 복귀
+  if (!getCurrentPlaylist() && appState.playlists && appState.playlists.length > 0) {
+    appState.activePlaylistId = appState.playlists[0].id;
+    appState.currentTrackIndex = -1;
+  }
+
   updateSyncUI();
-  showSyncStatus('동기화가 해제되었습니다. 로컬 모드로 작동합니다.', 'info', 4000);
+  renderPlaylists();
+  renderTracks();
+  showSyncStatus('동기화가 해제되었습니다. 로컬 플레이리스트 모드로 작동합니다.', 'info', 4000);
 }
 
 function copySyncCode() {
