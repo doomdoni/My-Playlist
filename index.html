@@ -73,6 +73,9 @@
       </div>
 
       <div class="sidebar-footer">
+        <button id="btn-cloud-sync" class="btn-sync-cloud" title="다른 기기(스마트폰/태블릿)와 실시간 동기화">
+          <i class="fa-solid fa-cloud-arrow-up"></i> <span id="sync-btn-text">기기 실시간 동기화</span>
+        </button>
         <div class="sidebar-footer-actions">
           <button id="btn-backup-data" class="btn-outline-sm" title="데이터 백업">
             <i class="fa-solid fa-download"></i> 내보내기
@@ -84,6 +87,7 @@
         </div>
         <div class="app-version-wrapper">
           <span class="app-version-badge">v2.4.0</span>
+          <span id="sync-badge" class="sync-live-tag hidden"><i class="fa-solid fa-circle-dot"></i> 동기화 켜짐</span>
         </div>
       </div>
     </aside>
@@ -362,6 +366,81 @@
           </div>
         </div>
         <span id="focus-time-total" class="time-text">0:00</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== ☁️ 기기 간 실시간 클라우드 동기화 모달 ==================== -->
+  <div id="sync-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-row">
+          <i class="fa-solid fa-cloud-arrow-up modal-icon"></i>
+          <h3>기기 간 실시간 동기화</h3>
+        </div>
+        <button id="btn-close-sync-modal" class="btn-icon modal-close-btn" title="닫기"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="modal-body">
+        <p class="modal-desc">동기화 코드를 공유하면 <strong>PC, 스마트폰, 태블릿</strong>에서 내 플레이리스트를 실시간으로 함께 사용할 수 있습니다.</p>
+
+        <!-- 연결되지 않았을 때 (방 생성 / 방 참가) -->
+        <div id="sync-disconnected-view" class="sync-view">
+          <div class="sync-box">
+            <h4><i class="fa-solid fa-plus-circle"></i> 새 동기화 코드 생성</h4>
+            <p class="sub-text">새로운 6자리 동기화 코드를 생성하여 현재 플레이리스트를 클라우드에 연동합니다.</p>
+            <button id="btn-create-sync-room" class="btn-primary btn-touch">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> 새 동기화 코드 발급
+            </button>
+          </div>
+
+          <div class="sync-divider"><span>또는</span></div>
+
+          <div class="sync-box">
+            <h4><i class="fa-solid fa-link"></i> 다른 기기에서 생성한 코드 입력</h4>
+            <p class="sub-text">다른 기기(PC 등)에서 발급받은 6자리 동기화 코드를 입력하여 연결합니다.</p>
+            <div class="sync-input-group">
+              <input type="text" id="input-sync-code" placeholder="동기화 코드 입력 또는 붙여넣기" maxlength="64" autocomplete="off">
+              <button id="btn-join-sync-room" class="btn-primary btn-touch">
+                <i class="fa-solid fa-right-to-bracket"></i> 연결
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 연결되었을 때 (실시간 연동 상태) -->
+        <div id="sync-connected-view" class="sync-view hidden">
+          <div class="sync-active-box">
+            <div class="sync-active-header">
+              <span class="sync-live-badge"><i class="fa-solid fa-circle-dot"></i> 실시간 연동 중</span>
+              <span class="sync-device-tag">자동 동기화 ON</span>
+            </div>
+            <div class="sync-code-display">
+              <span class="sync-code-label">내 동기화 코드</span>
+              <div class="sync-code-value-row">
+                <strong id="display-sync-code">PL-000000</strong>
+                <button id="btn-copy-sync-code" class="btn-outline-sm" title="코드 복사">
+                  <i class="fa-solid fa-copy"></i> 복사
+                </button>
+              </div>
+            </div>
+            <p class="sync-hint">📱 다른 스마트폰/태블릿에서 이 코드를 입력하면 내 모든 플레이리스트가 실시간으로 자동 동기화됩니다!</p>
+          </div>
+
+          <div class="sync-action-buttons">
+            <button id="btn-manual-sync-push" class="btn-outline-sm">
+              <i class="fa-solid fa-cloud-arrow-up"></i> 지금 클라우드에 올리기
+            </button>
+            <button id="btn-manual-sync-pull" class="btn-outline-sm">
+              <i class="fa-solid fa-cloud-arrow-down"></i> 클라우드에서 내려받기
+            </button>
+            <button id="btn-disconnect-sync" class="btn-danger-sm">
+              <i class="fa-solid fa-link-slash"></i> 동기화 해제
+            </button>
+          </div>
+        </div>
+
+        <div id="sync-status-msg" class="status-msg hidden"></div>
       </div>
     </div>
   </div>

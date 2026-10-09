@@ -146,7 +146,25 @@ const el = {
   focusProgressBar: document.getElementById('focus-progress-bar'),
   focusProgressFilled: document.getElementById('focus-progress-filled'),
   focusTimeCurrent: document.getElementById('focus-time-current'),
-  focusTimeTotal: document.getElementById('focus-time-total')
+  focusTimeTotal: document.getElementById('focus-time-total'),
+
+  // 기기 실시간 동기화 (클라우드 룸)
+  btnCloudSync: document.getElementById('btn-cloud-sync'),
+  syncBtnText: document.getElementById('sync-btn-text'),
+  syncBadge: document.getElementById('sync-badge'),
+  syncModal: document.getElementById('sync-modal'),
+  btnCloseSyncModal: document.getElementById('btn-close-sync-modal'),
+  syncDisconnectedView: document.getElementById('sync-disconnected-view'),
+  syncConnectedView: document.getElementById('sync-connected-view'),
+  btnCreateSyncRoom: document.getElementById('btn-create-sync-room'),
+  inputSyncCode: document.getElementById('input-sync-code'),
+  btnJoinSyncRoom: document.getElementById('btn-join-sync-room'),
+  displaySyncCode: document.getElementById('display-sync-code'),
+  btnCopySyncCode: document.getElementById('btn-copy-sync-code'),
+  btnManualSyncPush: document.getElementById('btn-manual-sync-push'),
+  btnManualSyncPull: document.getElementById('btn-manual-sync-pull'),
+  btnDisconnectSync: document.getElementById('btn-disconnect-sync'),
+  syncStatusMsg: document.getElementById('sync-status-msg')
 };
 
 /* ==================== 데이터 영속성 (LocalStorage) ==================== */
@@ -171,7 +189,7 @@ function loadState() {
   }
 }
 
-function saveState() {
+function saveState(syncToCloud = true) {
   try {
     const dataToSave = {
       playlists: appState.playlists,
@@ -179,6 +197,9 @@ function saveState() {
       settings: appState.settings
     };
     localStorage.setItem('my_yt_playlist_hub_v2', JSON.stringify(dataToSave));
+    if (syncToCloud && typeof scheduleCloudPush === 'function') {
+      scheduleCloudPush();
+    }
   } catch (err) {
     console.error('State save error:', err);
   }
@@ -1911,6 +1932,363 @@ function importBackup(file) {
   reader.readAsText(file);
 }
 
+/* ==================== ☁️ 기기 간 실시간 클라우드 동기화 (Method 2) ==================== */
+let activeSyncRoomId = null;
+let lastSyncedTimestamp = 0;
+let syncPollingTimer = null;
+let pushDebounceTimer = null;
+let isSyncingNow = false;
+let syncStatusTimeout = null;
+
+const CLOUD_SYNC_ENDPOINT = 'https://api.restful-api.dev/objects';
+const SYNC_STORAGE_KEY = 'my_yt_sync_room_id_v2';
+
+function showSyncStatus(msg, type = 'info', timeout = 4000) {
+  if (!el.syncStatusMsg) return;
+  if (syncStatusTimeout) clearTimeout(syncStatusTimeout);
+
+  el.syncStatusMsg.textContent = msg;
+  el.syncStatusMsg.className = `status-msg ${type}`;
+  el.syncStatusMsg.classList.remove('hidden');
+
+  if (timeout > 0) {
+    syncStatusTimeout = setTimeout(() => {
+      if (el.syncStatusMsg) el.syncStatusMsg.classList.add('hidden');
+    }, timeout);
+  }
+}
+
+function updateSyncUI() {
+  const isConnected = !!activeSyncRoomId;
+
+  if (el.syncBadge) {
+    if (isConnected) {
+      el.syncBadge.classList.remove('hidden');
+    } else {
+      el.syncBadge.classList.add('hidden');
+    }
+  }
+
+  if (el.syncBtnText) {
+    el.syncBtnText.textContent = isConnected ? '동기화 관리 (연결됨)' : '기기 실시간 동기화';
+  }
+
+  if (isConnected) {
+    if (el.syncDisconnectedView) el.syncDisconnectedView.classList.add('hidden');
+    if (el.syncConnectedView) el.syncConnectedView.classList.remove('hidden');
+    if (el.displaySyncCode) el.displaySyncCode.textContent = activeSyncRoomId;
+  } else {
+    if (el.syncDisconnectedView) el.syncDisconnectedView.classList.remove('hidden');
+    if (el.syncConnectedView) el.syncConnectedView.classList.add('hidden');
+  }
+}
+
+function openSyncModal() {
+  if (el.syncModal) {
+    el.syncModal.classList.remove('hidden');
+    updateSyncUI();
+    if (activeSyncRoomId) {
+      pullStateFromCloud(false);
+    }
+  }
+}
+
+function closeSyncModal() {
+  if (el.syncModal) {
+    el.syncModal.classList.add('hidden');
+    if (el.syncStatusMsg) el.syncStatusMsg.classList.add('hidden');
+  }
+}
+
+async function createSyncRoom() {
+  if (isSyncingNow) return;
+  isSyncingNow = true;
+
+  if (el.btnCreateSyncRoom) {
+    el.btnCreateSyncRoom.disabled = true;
+    el.btnCreateSyncRoom.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 코드 생성 중...';
+  }
+  showSyncStatus('클라우드 동기화 코드를 발급받고 있습니다...', 'info', 0);
+
+  try {
+    const payload = {
+      name: 'MY_PLAYLIST_HUB_SYNC',
+      data: {
+        playlists: appState.playlists,
+        activePlaylistId: appState.activePlaylistId,
+        updatedAt: Date.now()
+      }
+    };
+
+    const res = await fetch(CLOUD_SYNC_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) throw new Error(`서버 응답 오류 (${res.status})`);
+    const data = await res.json();
+
+    if (data && data.id) {
+      activeSyncRoomId = data.id;
+      localStorage.setItem(SYNC_STORAGE_KEY, activeSyncRoomId);
+      lastSyncedTimestamp = (data.data && data.data.updatedAt) || Date.now();
+      updateSyncUI();
+      startCloudSyncPolling();
+      showSyncStatus('동기화 코드가 발급되었습니다! 이 코드를 다른 기기에 입력하세요.', 'success', 5000);
+    } else {
+      throw new Error('응답 데이터에 ID가 없습니다.');
+    }
+  } catch (err) {
+    console.error('Create sync room error:', err);
+    showSyncStatus('동기화 코드 생성 중 오류가 발생했습니다: ' + err.message, 'error', 5000);
+  } finally {
+    isSyncingNow = false;
+    if (el.btnCreateSyncRoom) {
+      el.btnCreateSyncRoom.disabled = false;
+      el.btnCreateSyncRoom.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 새 동기화 코드 발급';
+    }
+  }
+}
+
+async function joinSyncRoom(inputRawCode) {
+  if (isSyncingNow) return;
+  if (!inputRawCode || !inputRawCode.trim()) {
+    showSyncStatus('동기화 코드를 입력해주세요.', 'error', 3000);
+    if (el.inputSyncCode) el.inputSyncCode.focus();
+    return;
+  }
+
+  let cleanCode = inputRawCode.trim();
+  // URL 형태로 붙여넣었을 경우 (?sync=... 파라미터 추출)
+  if (cleanCode.includes('sync=')) {
+    try {
+      const parsedUrl = new URL(cleanCode.startsWith('http') ? cleanCode : 'http://dummy.com/' + cleanCode);
+      const extracted = parsedUrl.searchParams.get('sync');
+      if (extracted) cleanCode = extracted.trim();
+    } catch (e) {}
+  }
+
+  isSyncingNow = true;
+  if (el.btnJoinSyncRoom) {
+    el.btnJoinSyncRoom.disabled = true;
+    el.btnJoinSyncRoom.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 연결 중...';
+  }
+  showSyncStatus('클라우드에서 플레이리스트를 불러오는 중입니다...', 'info', 0);
+
+  try {
+    const res = await fetch(`${CLOUD_SYNC_ENDPOINT}/${encodeURIComponent(cleanCode)}`);
+    if (!res.ok) {
+      if (res.status === 404) throw new Error('동기화 코드를 찾을 수 없습니다. 코드를 확인해주세요.');
+      throw new Error(`서버 응답 오류 (${res.status})`);
+    }
+
+    const data = await res.json();
+    if (data && data.data && Array.isArray(data.data.playlists)) {
+      appState.playlists = data.data.playlists;
+      appState.activePlaylistId = data.data.activePlaylistId || (appState.playlists[0] ? appState.playlists[0].id : null);
+      appState.currentTrackIndex = -1;
+      lastSyncedTimestamp = data.data.updatedAt || Date.now();
+      activeSyncRoomId = cleanCode;
+      localStorage.setItem(SYNC_STORAGE_KEY, activeSyncRoomId);
+      
+      saveState(false);
+      renderPlaylists();
+      renderTracks();
+      updateSyncUI();
+      startCloudSyncPolling();
+      showSyncStatus('연결 성공! 모든 플레이리스트가 동기화되었습니다.', 'success', 5000);
+      if (el.inputSyncCode) el.inputSyncCode.value = '';
+    } else {
+      throw new Error('유효한 플레이리스트 데이터가 없습니다.');
+    }
+  } catch (err) {
+    console.error('Join sync room error:', err);
+    showSyncStatus(err.message, 'error', 5000);
+  } finally {
+    isSyncingNow = false;
+    if (el.btnJoinSyncRoom) {
+      el.btnJoinSyncRoom.disabled = false;
+      el.btnJoinSyncRoom.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> 연결';
+    }
+  }
+}
+
+function scheduleCloudPush() {
+  if (!activeSyncRoomId) return;
+  if (pushDebounceTimer) clearTimeout(pushDebounceTimer);
+  pushDebounceTimer = setTimeout(() => {
+    pushStateToCloud(false);
+  }, 1200);
+}
+
+async function pushStateToCloud(showToast = false) {
+  if (!activeSyncRoomId || isSyncingNow) return;
+  isSyncingNow = true;
+
+  if (showToast) {
+    showSyncStatus('클라우드에 데이터를 업로드하는 중...', 'info', 0);
+  }
+
+  try {
+    const payload = {
+      name: 'MY_PLAYLIST_HUB_SYNC',
+      data: {
+        playlists: appState.playlists,
+        activePlaylistId: appState.activePlaylistId,
+        updatedAt: Date.now()
+      }
+    };
+
+    const res = await fetch(`${CLOUD_SYNC_ENDPOINT}/${encodeURIComponent(activeSyncRoomId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) throw new Error(`업로드 실패 (${res.status})`);
+    const data = await res.json();
+    lastSyncedTimestamp = (data.data && data.data.updatedAt) || Date.now();
+
+    if (showToast) {
+      showSyncStatus('클라우드에 최신 데이터가 성공적으로 반영되었습니다!', 'success', 3000);
+    }
+  } catch (err) {
+    console.error('Push state error:', err);
+    if (showToast) {
+      showSyncStatus('클라우드 업로드 실패: ' + err.message, 'error', 4000);
+    }
+  } finally {
+    isSyncingNow = false;
+  }
+}
+
+async function pullStateFromCloud(showToast = false) {
+  if (!activeSyncRoomId || isSyncingNow) return;
+  isSyncingNow = true;
+
+  if (showToast) {
+    showSyncStatus('클라우드에서 최신 데이터를 가져오는 중...', 'info', 0);
+  }
+
+  try {
+    const res = await fetch(`${CLOUD_SYNC_ENDPOINT}/${encodeURIComponent(activeSyncRoomId)}`);
+    if (!res.ok) throw new Error(`가져오기 실패 (${res.status})`);
+    const data = await res.json();
+
+    if (data && data.data && Array.isArray(data.data.playlists)) {
+      const remoteUpdatedAt = data.data.updatedAt || 0;
+      if (remoteUpdatedAt > lastSyncedTimestamp) {
+        appState.playlists = data.data.playlists;
+        if (data.data.activePlaylistId) {
+          appState.activePlaylistId = data.data.activePlaylistId;
+        }
+        lastSyncedTimestamp = remoteUpdatedAt;
+        saveState(false);
+        renderPlaylists();
+        renderTracks();
+        if (showToast) {
+          showSyncStatus('최신 플레이리스트를 업데이트했습니다!', 'success', 3000);
+        }
+      } else if (showToast) {
+        showSyncStatus('이미 최신 상태입니다.', 'info', 2500);
+      }
+    }
+  } catch (err) {
+    console.error('Pull state error:', err);
+    if (showToast) {
+      showSyncStatus('클라우드 다운로드 실패: ' + err.message, 'error', 4000);
+    }
+  } finally {
+    isSyncingNow = false;
+  }
+}
+
+function disconnectSyncRoom() {
+  if (!confirm('정말 동기화를 해제하시겠습니까?\n(현재 기기에 저장된 플레이리스트는 삭제되지 않고 안전하게 유지됩니다.)')) {
+    return;
+  }
+
+  activeSyncRoomId = null;
+  localStorage.removeItem(SYNC_STORAGE_KEY);
+  if (syncPollingTimer) {
+    clearInterval(syncPollingTimer);
+    syncPollingTimer = null;
+  }
+
+  updateSyncUI();
+  showSyncStatus('동기화가 해제되었습니다. 로컬 모드로 작동합니다.', 'info', 4000);
+}
+
+function copySyncCode() {
+  if (!activeSyncRoomId) return;
+
+  const codeText = activeSyncRoomId;
+  const copyToClipboard = (text) => {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      return Promise.resolve();
+    } catch (err) {
+      document.body.removeChild(textArea);
+      return Promise.reject(err);
+    }
+  };
+
+  copyToClipboard(codeText).then(() => {
+    if (el.btnCopySyncCode) {
+      const originalHtml = el.btnCopySyncCode.innerHTML;
+      el.btnCopySyncCode.innerHTML = '<i class="fa-solid fa-check"></i> 복사됨!';
+      setTimeout(() => {
+        if (el.btnCopySyncCode) el.btnCopySyncCode.innerHTML = originalHtml;
+      }, 2000);
+    }
+    showSyncStatus('동기화 코드가 클립보드에 복사되었습니다!', 'success', 3000);
+  }).catch(() => {
+    showSyncStatus('코드 복사에 실패했습니다. 코드를 직접 드래그하여 복사해주세요.', 'error', 4000);
+  });
+}
+
+function startCloudSyncPolling() {
+  if (syncPollingTimer) clearInterval(syncPollingTimer);
+  syncPollingTimer = setInterval(() => {
+    if (activeSyncRoomId && document.visibilityState === 'visible') {
+      pullStateFromCloud(false);
+    }
+  }, 12000);
+}
+
+function initCloudSync() {
+  // 1. URL search param check (?sync=...)
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const syncParam = urlParams.get('sync');
+    if (syncParam && syncParam.trim()) {
+      joinSyncRoom(syncParam.trim());
+      return;
+    }
+  } catch (e) {}
+
+  // 2. localStorage saved sync room
+  const savedRoomId = localStorage.getItem(SYNC_STORAGE_KEY);
+  if (savedRoomId && savedRoomId.trim()) {
+    activeSyncRoomId = savedRoomId.trim();
+    updateSyncUI();
+    pullStateFromCloud(false);
+    startCloudSyncPolling();
+  }
+}
+
 /* ==================== 프로토콜 검사 ==================== */
 function checkProtocol() {
   if (window.location.protocol === 'file:') {
@@ -2074,31 +2452,69 @@ function setupEventListeners() {
 
   setupFocusSeekbarDragEvents();
 
+  // 클라우드 기기 동기화 이벤트
+  if (el.btnCloudSync) el.btnCloudSync.addEventListener('click', openSyncModal);
+  if (el.btnCloseSyncModal) el.btnCloseSyncModal.addEventListener('click', closeSyncModal);
+  if (el.syncModal) {
+    el.syncModal.addEventListener('click', (e) => {
+      if (e.target === el.syncModal) closeSyncModal();
+    });
+  }
+  if (el.btnCreateSyncRoom) el.btnCreateSyncRoom.addEventListener('click', createSyncRoom);
+  if (el.btnJoinSyncRoom) {
+    el.btnJoinSyncRoom.addEventListener('click', () => {
+      if (el.inputSyncCode) joinSyncRoom(el.inputSyncCode.value);
+    });
+  }
+  if (el.inputSyncCode) {
+    el.inputSyncCode.addEventListener('keydown', (e) => {
+      if (e.code === 'Enter') {
+        e.preventDefault();
+        joinSyncRoom(el.inputSyncCode.value);
+      }
+    });
+  }
+  if (el.btnCopySyncCode) el.btnCopySyncCode.addEventListener('click', copySyncCode);
+  if (el.btnManualSyncPush) el.btnManualSyncPush.addEventListener('click', () => pushStateToCloud(true));
+  if (el.btnManualSyncPull) el.btnManualSyncPull.addEventListener('click', () => pullStateFromCloud(true));
+  if (el.btnDisconnectSync) el.btnDisconnectSync.addEventListener('click', disconnectSyncRoom);
+
   // 화면 꺼짐 방지 토글 버튼
   if (el.btnWakeLock) {
     el.btnWakeLock.addEventListener('click', toggleWakeLock);
   }
 
-  // 화면 복귀 및 탭 전환 시 자동 복구
+  // 화면 복귀 및 탭 전환 시 자동 복구 & 동기화
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && appState.isPlaying) {
-      requestScreenWakeLock();
-      startSilentAudioDriver();
-      if (ytPlayer && isPlayerReady) {
-        try {
-          const state = ytPlayer.getPlayerState();
-          if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.UNSTARTED) {
-            ytPlayer.playVideo();
-          }
-        } catch (e) {}
+    if (document.visibilityState === 'visible') {
+      if (activeSyncRoomId) {
+        pullStateFromCloud(false);
+      }
+      if (appState.isPlaying) {
+        requestScreenWakeLock();
+        startSilentAudioDriver();
+        if (ytPlayer && isPlayerReady) {
+          try {
+            const state = ytPlayer.getPlayerState();
+            if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.UNSTARTED) {
+              ytPlayer.playVideo();
+            }
+          } catch (e) {}
+        }
       }
     }
   });
 
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Escape' && isFocusModeOpen) {
-      closeFocusMode();
-      return;
+    if (e.code === 'Escape') {
+      if (el.syncModal && !el.syncModal.classList.contains('hidden')) {
+        closeSyncModal();
+        return;
+      }
+      if (isFocusModeOpen) {
+        closeFocusMode();
+        return;
+      }
     }
     if (e.code === 'Space' && e.target.tagName !== 'INPUT') {
       e.preventDefault();
@@ -2197,6 +2613,7 @@ function init() {
   updateShuffleUI();
   updateNowPlayingInfo(null);
   updateVideoVisibilityUI();
+  initCloudSync();
 }
 
 document.addEventListener('DOMContentLoaded', init);
