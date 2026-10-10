@@ -2187,8 +2187,10 @@ let syncPollingTimer = null;
 let pushDebounceTimer = null;
 let isSyncingNow = false;
 let syncStatusTimeout = null;
+let isSyncHost = false;
 
 const SYNC_STORAGE_KEY = 'my_yt_sync_room_code_v3';
+const SYNC_HOST_KEY = 'my_yt_sync_is_host_v3';
 
 function showSyncStatus(msg, type = 'info', timeout = 4000) {
   if (!el.syncStatusMsg) return;
@@ -2224,6 +2226,20 @@ function updateSyncUI() {
     if (el.syncDisconnectedView) el.syncDisconnectedView.classList.add('hidden');
     if (el.syncConnectedView) el.syncConnectedView.classList.remove('hidden');
     if (el.displaySyncCode) el.displaySyncCode.textContent = activeSyncRoomId;
+
+    const deviceTag = document.querySelector('.sync-device-tag');
+    if (deviceTag) {
+      deviceTag.textContent = isSyncHost ? '방장 기기 (동기화 생성)' : '연결된 기기 (동기화 참여)';
+    }
+
+    if (el.btnDisconnectSync) {
+      el.btnDisconnectSync.innerHTML = isSyncHost
+        ? '<i class="fa-solid fa-power-off"></i> 동기화 종료 (모든 기기 해제)'
+        : '<i class="fa-solid fa-link-slash"></i> 동기화 연결 해제';
+      el.btnDisconnectSync.title = isSyncHost
+        ? '방장이 동기화를 종료하면 연결된 모든 기기의 동기화도 함께 안전하게 해제됩니다.'
+        : '이 기기의 동기화 연결만 해제합니다.';
+    }
   } else {
     if (el.syncDisconnectedView) el.syncDisconnectedView.classList.remove('hidden');
     if (el.syncConnectedView) el.syncConnectedView.classList.add('hidden');
@@ -2342,7 +2358,7 @@ async function uploadSyncPayloadToCloud(jsonStr, targetRoomCode = null) {
   // 3. KV Store에 roomCode -> pasteKey 포인터 매핑 저장 (초고속, 방 코드 영구 불변!)
   try {
     const kvUrl = `https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${SYNC_KV_APP_KEY}/${encodeURIComponent(roomCode)}/${encodeURIComponent(pasteKey)}`;
-    const kvRes = await fetch(kvUrl, { method: 'POST' });
+    const kvRes = await fetch(kvUrl, { method: 'POST', body: '' });
     if (kvRes.ok) {
       lastSyncedPasteKey = pasteKey;
       return roomCode;
@@ -2383,7 +2399,7 @@ async function downloadSyncPayloadFromCloud(rawCode) {
     cleanCode.toUpperCase(),
     cleanCode.startsWith('PL-') ? cleanCode.slice(3) : 'PL-' + cleanCode,
     (cleanCode.startsWith('PL-') ? cleanCode.slice(3) : 'PL-' + cleanCode).toUpperCase()
-  ];
+  ].filter(Boolean);
 
   for (const cKey of candidateKeys) {
     try {
@@ -2391,6 +2407,9 @@ async function downloadSyncPayloadFromCloud(rawCode) {
       const res = await fetch(kvUrl, { cache: 'no-store' });
       if (res.ok) {
         const rawText = (await res.text() || '').trim().replace(/^"|"$/g, '');
+        if (rawText === 'ROOM_CLOSED' || rawText === 'DISCONNECTED') {
+          return { isClosed: true, rawKey: cleanCode };
+        }
         if (rawText && rawText !== 'null' && rawText.length >= 3) {
           resolvedPasteKey = rawText;
           break;
@@ -2401,6 +2420,10 @@ async function downloadSyncPayloadFromCloud(rawCode) {
 
   // 2. 포인터가 없으면 직접 입력된 코드 자체를 pasteKey로 취급
   const targetKey = resolvedPasteKey || cleanCode;
+  if (targetKey === 'ROOM_CLOSED' || targetKey === 'DISCONNECTED') {
+    return { isClosed: true, rawKey: cleanCode };
+  }
+
   const isDpaste = targetKey.startsWith('DP-') || /^DP-/i.test(cleanCode);
   const pureKey = targetKey.replace(/^(PL|DP)-/i, '').trim();
 
@@ -2428,8 +2451,18 @@ async function downloadSyncPayloadFromCloud(rawCode) {
     throw new Error('동기화 코드를 찾을 수 없습니다. 코드를 다시 확인해주세요.');
   }
 
-  const parsed = JSON.parse(textData);
-  return { parsed, rawKey: cleanCode, pasteKey: targetKey };
+  let parsed = null;
+  try {
+    parsed = JSON.parse(textData);
+  } catch (e) {
+    throw new Error('동기화 데이터 형식이 올바르지 않습니다.');
+  }
+
+  if (parsed && (parsed.status === 'ROOM_CLOSED' || parsed.isClosed === true)) {
+    return { isClosed: true, rawKey: cleanCode, parsed };
+  }
+
+  return { parsed, rawKey: cleanCode, pasteKey: targetKey, isClosed: false };
 }
 
 async function createSyncRoom() {
@@ -2471,7 +2504,9 @@ async function createSyncRoom() {
     const roomCode = await uploadSyncPayloadToCloud(jsonPayload);
 
     activeSyncRoomId = roomCode;
+    isSyncHost = true;
     localStorage.setItem(SYNC_STORAGE_KEY, activeSyncRoomId);
+    localStorage.setItem(SYNC_HOST_KEY, 'true');
     lastSyncedTimestamp = Date.now();
     
     saveState();
@@ -2508,7 +2543,12 @@ async function joinSyncRoom(inputRawCode) {
   showSyncStatus('클라우드에서 플레이리스트를 불러오는 중입니다...', 'info', 0);
 
   try {
-    const { parsed, rawKey, pasteKey } = await downloadSyncPayloadFromCloud(inputRawCode);
+    const result = await downloadSyncPayloadFromCloud(inputRawCode);
+    if (result && result.isClosed) {
+      throw new Error('해당 동기화 방은 방장에 의해 이미 종료(해제)되었습니다.');
+    }
+
+    const { parsed, rawKey, pasteKey } = result;
 
     if (parsed && Array.isArray(parsed.playlists)) {
       // 썸네일 완전 복원 및 데이터 매핑 (로컬 플레이리스트는 100% 보존!)
@@ -2536,7 +2576,9 @@ async function joinSyncRoom(inputRawCode) {
       lastSyncedTimestamp = parsed.updatedAt || Date.now();
       lastSyncedPasteKey = pasteKey;
       activeSyncRoomId = rawKey.startsWith('PL-') || rawKey.startsWith('DP-') ? rawKey : 'PL-' + rawKey;
+      isSyncHost = false;
       localStorage.setItem(SYNC_STORAGE_KEY, activeSyncRoomId);
+      localStorage.setItem(SYNC_HOST_KEY, 'false');
 
       // 🌟 클라우드에서 받아온 로컬 플리만 골라서 동일하게 트랙 업데이트!
       syncLinkedLocalPlaylistsFromCloud();
@@ -2644,7 +2686,15 @@ async function pullStateFromCloud(showToast = false) {
   }
 
   try {
-    const { parsed, pasteKey } = await downloadSyncPayloadFromCloud(activeSyncRoomId);
+    const result = await downloadSyncPayloadFromCloud(activeSyncRoomId);
+
+    // 🛑 방장이 동기화를 해제(종료)한 경우 -> 연결된 기기에서도 안전하게 자동 연결 해제!
+    if (result && result.isClosed) {
+      handleRemoteSyncClosed();
+      return;
+    }
+
+    const { parsed, pasteKey } = result;
 
     if (parsed && Array.isArray(parsed.playlists)) {
       const remoteUpdatedAt = parsed.updatedAt || 0;
@@ -2709,30 +2759,152 @@ async function pullStateFromCloud(showToast = false) {
   }
 }
 
-function disconnectSyncRoom() {
-  if (!confirm('정말 동기화를 해제하시겠습니까?\n\n* 내 로컬 플레이리스트는 100% 안전하게 유지됩니다.\n* 클라우드 동기화 연결만 해제됩니다.')) {
-    return;
-  }
+// 🛡️ [삭제 방지 핵심 로직] 동기화 해제 시 클라우드 플레이리스트가 유실되지 않도록 로컬 플레이리스트로 영구 보존
+function preserveCloudPlaylistsToLocal() {
+  if (!appState.cloudPlaylists || appState.cloudPlaylists.length === 0) return false;
+  if (!appState.playlists) appState.playlists = [];
 
-  activeSyncRoomId = null;
-  lastSyncedPasteKey = null;
-  appState.cloudPlaylists = [];
-  localStorage.removeItem(SYNC_STORAGE_KEY);
+  let hasChanges = false;
+
+  appState.cloudPlaylists.forEach(cloudPl => {
+    // 1. 이미 연결된 로컬 플리가 있는지 확인
+    const linkedLocal = appState.playlists.find(lp => lp.originCloudPlId === cloudPl.id);
+    if (linkedLocal) {
+      // 최신 트랙 데이터 반영 및 연동 플래그 정리
+      if (Array.isArray(cloudPl.tracks) && cloudPl.tracks.length > 0) {
+        linkedLocal.tracks = JSON.parse(JSON.stringify(cloudPl.tracks));
+      }
+      linkedLocal.originCloudPlId = null;
+      linkedLocal.syncWithCloud = false;
+      hasChanges = true;
+    } else {
+      // 2. 로컬에 아직 없는 클라우드 플리면 안전하게 새 로컬 플리로 이전 등록
+      const nameExists = appState.playlists.some(lp => lp.name === cloudPl.name);
+      const safeName = nameExists ? `${cloudPl.name} (보존됨)` : cloudPl.name;
+
+      appState.playlists.push({
+        id: 'pl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name: safeName,
+        tracks: JSON.parse(JSON.stringify(cloudPl.tracks || [])),
+        createdAt: cloudPl.createdAt || Date.now()
+      });
+      hasChanges = true;
+    }
+  });
+
+  // 기존 로컬 플리 중 혹시 남아있을 수 있는 syncWithCloud / originCloudPlId 플래그도 안전하게 해제
+  appState.playlists.forEach(lp => {
+    if (lp.syncWithCloud || lp.originCloudPlId) {
+      lp.syncWithCloud = false;
+      lp.originCloudPlId = null;
+      hasChanges = true;
+    }
+  });
+
+  return hasChanges;
+}
+
+// 🛑 방장이 동기화를 종료했을 때 연결된 다른 기기에서 안전하게 자동 해제 처리 (다른 기기 데이터 100% 보존)
+function handleRemoteSyncClosed() {
   if (syncPollingTimer) {
     clearInterval(syncPollingTimer);
     syncPollingTimer = null;
   }
 
-  // 만약 선택된 플레이리스트가 클라우드였다면 로컬 플레이리스트로 복귀
-  if (!getCurrentPlaylist() && appState.playlists && appState.playlists.length > 0) {
-    appState.activePlaylistId = appState.playlists[0].id;
+  // 🛡️ [다른 기기에서 삭제 방지]
+  preserveCloudPlaylistsToLocal();
+
+  activeSyncRoomId = null;
+  lastSyncedPasteKey = null;
+  isSyncHost = false;
+  appState.cloudPlaylists = [];
+  localStorage.removeItem(SYNC_STORAGE_KEY);
+  localStorage.removeItem(SYNC_HOST_KEY);
+
+  // 활성 플레이리스트를 안전한 로컬 플레이리스트로 복귀
+  if (appState.playlists && appState.playlists.length > 0) {
+    const stillValid = appState.playlists.some(p => p.id === appState.activePlaylistId);
+    if (!stillValid) {
+      appState.activePlaylistId = appState.playlists[0].id;
+      appState.currentTrackIndex = -1;
+    }
+  } else {
+    appState.activePlaylistId = null;
     appState.currentTrackIndex = -1;
   }
 
+  saveState(false);
   updateSyncUI();
   renderPlaylists();
   renderTracks();
-  showSyncStatus('동기화가 해제되었습니다. 로컬 플레이리스트 모드로 작동합니다.', 'info', 4000);
+
+  showSyncStatus('방장이 동기화를 종료하여 연결이 해제되었습니다. 모든 플레이리스트는 로컬에 안전하게 보존되었습니다.', 'warning', 7000);
+  alert('📢 동기화 종료 알림\n\n방장이 동기화를 해제하여 기기 간 동기화 연결이 자동으로 종료되었습니다.\n\n플레이리스트와 수록곡들은 삭제되지 않고 내 로컬 플레이리스트에 100% 안전하게 보존되었습니다.');
+}
+
+async function disconnectSyncRoom() {
+  const confirmMsg = isSyncHost
+    ? '정말 동기화를 해제하시겠습니까?\n\n* 방장이 동기화를 해제하면 연결된 다른 기기들도 동기화가 함께 안전하게 해제됩니다.\n* 모든 기기의 플레이리스트는 로컬에 100% 안전하게 보존되며 삭제되지 않습니다.'
+    : '정말 동기화를 해제하시겠습니까?\n\n* 내 플레이리스트는 로컬에 100% 안전하게 보존됩니다.\n* 클라우드 동기화 연결만 해제됩니다.';
+
+  if (!confirm(confirmMsg)) {
+    return;
+  }
+
+  const roomToClose = activeSyncRoomId;
+  const wasHost = isSyncHost;
+
+  // 1. 방장(Host)인 경우, 연결된 다른 기기들이 인지할 수 있도록 KV 스토어에 방 종료 신호(ROOM_CLOSED) 전송
+  if (wasHost && roomToClose) {
+    const bareCode = roomToClose.replace(/^PL-/, '');
+    try {
+      showSyncStatus('동기화 방을 안전하게 종료하는 중...', 'info', 0);
+      await Promise.allSettled([
+        fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${SYNC_KV_APP_KEY}/${encodeURIComponent(roomToClose)}/ROOM_CLOSED`, { method: 'POST', body: '' }),
+        fetch(`https://keyvalue.immanuel.co/api/KeyVal/UpdateValue/${SYNC_KV_APP_KEY}/${encodeURIComponent(bareCode)}/ROOM_CLOSED`, { method: 'POST', body: '' })
+      ]);
+    } catch (e) {
+      console.warn('Failed to broadcast room closure:', e);
+    }
+  }
+
+  // 2. 🛡️ [삭제 방지] 현재 기기의 클라우드 플레이리스트를 로컬 플레이리스트에 안전하게 보존
+  preserveCloudPlaylistsToLocal();
+
+  if (syncPollingTimer) {
+    clearInterval(syncPollingTimer);
+    syncPollingTimer = null;
+  }
+
+  activeSyncRoomId = null;
+  lastSyncedPasteKey = null;
+  isSyncHost = false;
+  appState.cloudPlaylists = [];
+  localStorage.removeItem(SYNC_STORAGE_KEY);
+  localStorage.removeItem(SYNC_HOST_KEY);
+
+  // 3. 만약 선택된 플레이리스트가 클라우드였다면 로컬 플레이리스트로 복귀
+  if (appState.playlists && appState.playlists.length > 0) {
+    const stillValid = appState.playlists.some(p => p.id === appState.activePlaylistId);
+    if (!stillValid) {
+      appState.activePlaylistId = appState.playlists[0].id;
+      appState.currentTrackIndex = -1;
+    }
+  } else {
+    appState.activePlaylistId = null;
+    appState.currentTrackIndex = -1;
+  }
+
+  saveState();
+  updateSyncUI();
+  renderPlaylists();
+  renderTracks();
+
+  if (wasHost) {
+    showSyncStatus('방 동기화가 종료되었습니다. 연결된 모든 기기에서도 안전하게 해제됩니다.', 'info', 5000);
+  } else {
+    showSyncStatus('동기화 연결이 해제되었습니다. 로컬 플레이리스트 모드로 작동합니다.', 'info', 4000);
+  }
 }
 
 function copySyncCode() {
@@ -2784,6 +2956,9 @@ function startCloudSyncPolling() {
 }
 
 function initCloudSync() {
+  const savedIsHost = localStorage.getItem(SYNC_HOST_KEY);
+  isSyncHost = (savedIsHost === 'true');
+
   // 1. URL search param check (?sync=...)
   try {
     const urlParams = new URLSearchParams(window.location.search);
