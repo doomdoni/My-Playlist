@@ -1604,18 +1604,28 @@ body {
 
   /* 트랙 리스트 아이템: 모바일 음악 앱(Spotify / 유튜브 뮤직 스타일) 간결한 행 */
   .track-item {
-    padding: 6px 6px;
-    grid-template-columns: 20px minmax(0, 1fr) 30px;
-    gap: 6px;
+    display: flex !important;
+    align-items: center !important;
+    padding: 6px 8px !important;
+    gap: 8px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
     border-radius: var(--radius-sm);
-    min-width: 0;
-    box-sizing: border-box;
-    align-items: center;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+
+  .track-item.active {
+    box-shadow: inset 0 0 0 1px var(--dynamic-video-color), 0 0 8px rgba(0, 0, 0, 0.4) !important;
   }
 
   /* 번호 컬럼 숨김 (공간 확보 및 깔끔한 디자인) */
   .track-index {
     display: none !important;
+    width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
   .drag-handle {
@@ -1624,14 +1634,17 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0 !important;
+    width: 18px !important;
   }
 
   .track-info {
     display: flex;
     align-items: center;
     gap: 8px;
-    min-width: 0;
-    overflow: hidden;
+    min-width: 0 !important;
+    flex: 1 1 0% !important;
+    overflow: hidden !important;
   }
 
   .track-thumb {
@@ -1642,24 +1655,28 @@ body {
   }
 
   .track-text-details {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
+    min-width: 0 !important;
+    flex: 1 1 0% !important;
+    overflow: hidden !important;
   }
 
   .track-title {
     font-size: 0.84rem;
     line-height: 1.25;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: block;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 
   .track-actions {
     display: flex;
     justify-content: flex-end;
     align-items: center;
+    flex-shrink: 0 !important;
+    margin-left: auto !important;
   }
 
   .btn-track-action {
@@ -1670,22 +1687,50 @@ body {
   }
 
   /* 비디오 영역 */
+  .player-view-section {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+
   .video-container {
     border-radius: var(--radius-md);
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   .now-playing-card {
     padding: 8px 10px;
     border-radius: var(--radius-md);
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
   }
 
   .np-thumbnail-wrapper {
     width: 46px;
     height: 34px;
+    flex-shrink: 0 !important;
+  }
+
+  .np-details {
+    min-width: 0 !important;
+    flex: 1 1 0% !important;
+    overflow: hidden !important;
   }
 
   .np-details h3 {
     font-size: 0.84rem;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 
   /* 하단 고정 플레이어 바 - 슬림하고 세련된 크기로 최적화 */
@@ -1810,6 +1855,15 @@ body {
 
   .top-sound-waveform {
     height: 6px;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+
+  .sound-wave-canvas {
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block;
   }
 
   .mobile-sub-controls {
