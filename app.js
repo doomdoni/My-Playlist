@@ -924,6 +924,9 @@ function playNextShuffledTrack() {
 let isFocusModeOpen = false;
 let wasVideoVisibleBeforeFocus = true;
 
+let focusScrollTimeout = null;
+let isUserTouchingFocus = false;
+
 function openFocusMode() {
   let currentPl = getCurrentPlaylist();
   if (!currentPl || currentPl.tracks.length === 0) {
@@ -967,6 +970,10 @@ function openFocusMode() {
 
 function closeFocusMode() {
   isFocusModeOpen = false;
+  if (focusScrollTimeout) {
+    clearTimeout(focusScrollTimeout);
+    focusScrollTimeout = null;
+  }
   if (el.focusOverlay) el.focusOverlay.classList.add('hidden');
   if (el.btnFocusMode) el.btnFocusMode.classList.remove('active');
   if (el.btnFocusModeBar) el.btnFocusModeBar.classList.remove('active');
@@ -2957,8 +2964,52 @@ function setupEventListeners() {
   if (el.btnFocusNext) el.btnFocusNext.addEventListener('click', playNextTrack);
   if (el.btnFocusShuffle) el.btnFocusShuffle.addEventListener('click', toggleShuffle);
   if (el.btnFocusRepeat) el.btnFocusRepeat.addEventListener('click', toggleRepeat);
-
   setupFocusSeekbarDragEvents();
+
+  // 감상 모드 스크롤 후 정지 시 현재 곡으로 자동 중앙 복귀
+  if (el.focusCarouselViewport) {
+    const handleFocusScrollActivity = () => {
+      if (!isFocusModeOpen) return;
+      if (focusScrollTimeout) {
+        clearTimeout(focusScrollTimeout);
+      }
+      // 사용자가 터치나 드래그를 끝내고 스크롤이 멈춘 후 1.3초 뒤에 현재 재생 중인 곡으로 자동 중앙 정렬
+      focusScrollTimeout = setTimeout(() => {
+        if (isFocusModeOpen && !isUserTouchingFocus) {
+          centerActiveFocusTrack(true);
+        }
+      }, 1300);
+    };
+
+    el.focusCarouselViewport.addEventListener('scroll', handleFocusScrollActivity, { passive: true });
+
+    el.focusCarouselViewport.addEventListener('touchstart', () => {
+      isUserTouchingFocus = true;
+      if (focusScrollTimeout) clearTimeout(focusScrollTimeout);
+    }, { passive: true });
+
+    el.focusCarouselViewport.addEventListener('touchend', () => {
+      isUserTouchingFocus = false;
+      handleFocusScrollActivity();
+    }, { passive: true });
+
+    el.focusCarouselViewport.addEventListener('touchcancel', () => {
+      isUserTouchingFocus = false;
+      handleFocusScrollActivity();
+    }, { passive: true });
+
+    el.focusCarouselViewport.addEventListener('mousedown', () => {
+      isUserTouchingFocus = true;
+      if (focusScrollTimeout) clearTimeout(focusScrollTimeout);
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (isUserTouchingFocus) {
+        isUserTouchingFocus = false;
+        handleFocusScrollActivity();
+      }
+    });
+  }
 
   // 클라우드 기기 동기화 이벤트
   if (el.btnCloudSync) el.btnCloudSync.addEventListener('click', openSyncModal);
