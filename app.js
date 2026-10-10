@@ -1472,8 +1472,10 @@ function reorderTracks(fromIndex, toIndex) {
   }
 
   if (isCloudPlaylist(currentPl.id)) {
+    syncLinkedLocalPlaylistsFromCloud();
     scheduleCloudPush();
   } else {
+    syncLinkedLocalToCloudPlaylist(currentPl);
     saveState();
   }
   renderTracks();
@@ -1529,12 +1531,14 @@ function renderPlaylists() {
 
   if (hasLocal) {
     appState.playlists.forEach(pl => {
+      const isCloudLinked = !!(pl.originCloudPlId || (pl.name && pl.name.includes('(로컬)')));
       const li = document.createElement('li');
       li.className = `playlist-item ${pl.id === appState.activePlaylistId ? 'active' : ''}`;
       li.innerHTML = `
         <div class="playlist-item-left">
           <i class="fa-solid fa-compact-disc"></i>
           <span>${escapeHtml(pl.name)}</span>
+          ${isCloudLinked ? '<span class="cloud-linked-pill" title="클라우드 업데이트와 연동됨">클라우드 연동</span>' : ''}
         </div>
         <span class="playlist-item-count">${(pl.tracks || []).length}곡</span>
       `;
@@ -1620,13 +1624,15 @@ function copyCloudPlaylistToLocal(cloudPlId) {
   const newLocalPl = {
     id: 'pl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
     name: `${cloudPl.name} (로컬)`,
-    tracks: JSON.parse(JSON.stringify(cloudPl.tracks || []))
+    tracks: JSON.parse(JSON.stringify(cloudPl.tracks || [])),
+    originCloudPlId: cloudPl.id, // 🔗 클라우드 출처 ID 기록 (클라우드 업데이트 시 자동 동기화용)
+    syncWithCloud: true
   };
 
   appState.playlists.push(newLocalPl);
   saveState();
   renderPlaylists();
-  alert(`'${cloudPl.name}' 플레이리스트가 내 로컬 플레이리스트에 안전하게 저장되었습니다!`);
+  alert(`'${cloudPl.name}' 플레이리스트가 내 로컬 플레이리스트에 안전하게 저장되었습니다!\n\n(클라우드에 새 곡이 추가되거나 변경되면 이 로컬 플레이리스트에도 자동으로 반영됩니다.)`);
 }
 
 function renderTracks() {
@@ -1993,9 +1999,13 @@ async function addTrackFromUrl(url) {
 
     currentPl.tracks.push(newTrack);
     
-    if (isCloudPlaylist(currentPl.id) || activeSyncRoomId) {
+    if (isCloudPlaylist(currentPl.id)) {
+      // 클라우드 플리에 추가 -> 클라우드에서 받아온 로컬 플리에도 즉시 동일하게 반영
+      syncLinkedLocalPlaylistsFromCloud();
       scheduleCloudPush();
     } else {
+      // 로컬 플리에 추가 -> 만약 클라우드에서 받아온 로컬 플리라면 클라우드 플리에도 반영
+      syncLinkedLocalToCloudPlaylist(currentPl);
       saveState();
     }
 
@@ -2025,9 +2035,13 @@ function deleteTrack(index) {
 
   currentPl.tracks.splice(index, 1);
 
-  if (isCloudPlaylist(currentPl.id) || activeSyncRoomId) {
+  if (isCloudPlaylist(currentPl.id)) {
+    // 클라우드 플리에서 삭제 -> 클라우드에서 받아온 로컬 플리에도 동일하게 반영
+    syncLinkedLocalPlaylistsFromCloud();
     scheduleCloudPush();
   } else {
+    // 로컬 플리에서 삭제 -> 만약 클라우드에서 받아온 로컬 플리라면 클라우드 플리에도 반영
+    syncLinkedLocalToCloudPlaylist(currentPl);
     saveState();
   }
 
@@ -2457,6 +2471,9 @@ async function joinSyncRoom(inputRawCode) {
       activeSyncRoomId = rawKey.startsWith('PL-') || rawKey.startsWith('DP-') ? rawKey : 'PL-' + rawKey;
       localStorage.setItem(SYNC_STORAGE_KEY, activeSyncRoomId);
 
+      // 🌟 클라우드에서 받아온 로컬 플리만 골라서 동일하게 트랙 업데이트!
+      syncLinkedLocalPlaylistsFromCloud();
+
       saveState();
       renderPlaylists();
       renderTracks();
@@ -2485,6 +2502,57 @@ function scheduleCloudPush() {
   pushDebounceTimer = setTimeout(() => {
     pushStateToCloud(false);
   }, 350);
+}
+
+// 🔗 클라우드에서 업데이트된 트랙 데이터를 '클라우드에서 내려받은 로컬 플레이리스트'에만 정확히 동기화
+function syncLinkedLocalPlaylistsFromCloud() {
+  if (!appState.playlists || !appState.cloudPlaylists) return;
+  let hasLocalChange = false;
+
+  appState.playlists.forEach(localPl => {
+    // 1. originCloudPlId가 있거나, 2. 이름이 '<클라우드이름> (로컬)' 형태인 클라우드 유래 로컬 플리 대상
+    let matchingCloudPl = null;
+    if (localPl.originCloudPlId) {
+      matchingCloudPl = appState.cloudPlaylists.find(cp => cp.id === localPl.originCloudPlId);
+    }
+    if (!matchingCloudPl && localPl.name) {
+      const baseName = localPl.name.replace(/\s*\(로컬\)$/, '').trim();
+      matchingCloudPl = appState.cloudPlaylists.find(cp => cp.name.trim() === baseName);
+    }
+
+    // 일치하는 클라우드 플리가 존재하면, 해당 로컬 플리만 최신 트랙 목록 동기화
+    if (matchingCloudPl && Array.isArray(matchingCloudPl.tracks)) {
+      localPl.originCloudPlId = matchingCloudPl.id; // 링크 보존/확정
+      localPl.syncWithCloud = true;
+      localPl.tracks = JSON.parse(JSON.stringify(matchingCloudPl.tracks));
+      hasLocalChange = true;
+    }
+  });
+
+  if (hasLocalChange) {
+    saveState(false); // 로컬 저장 (중복 클라우드 푸시 방지)
+  }
+}
+
+// 🔗 클라우드에서 내려받은 로컬 플리에서 곡이 추가/삭제/이동된 경우 클라우드 플리에도 반영
+function syncLinkedLocalToCloudPlaylist(localPl) {
+  if (!localPl || !appState.cloudPlaylists) return false;
+  let matchingCloudPl = null;
+  if (localPl.originCloudPlId) {
+    matchingCloudPl = appState.cloudPlaylists.find(cp => cp.id === localPl.originCloudPlId);
+  }
+  if (!matchingCloudPl && localPl.name) {
+    const baseName = localPl.name.replace(/\s*\(로컬\)$/, '').trim();
+    matchingCloudPl = appState.cloudPlaylists.find(cp => cp.name.trim() === baseName);
+  }
+
+  if (matchingCloudPl) {
+    localPl.originCloudPlId = matchingCloudPl.id;
+    matchingCloudPl.tracks = JSON.parse(JSON.stringify(localPl.tracks || []));
+    scheduleCloudPush();
+    return true;
+  }
+  return false;
 }
 
 // 💡 곡 추가/삭제 시에도 방 코드는 절대 변경되지 않고 포인터 덮어쓰기 저장!
@@ -2549,6 +2617,9 @@ async function pullStateFromCloud(showToast = false) {
             };
           })
         }));
+
+        // 🌟 클라우드에서 받아온 로컬 플리만 골라서 동일하게 트랙 업데이트! (다른 로컬 플리는 전혀 건드리지 않음)
+        syncLinkedLocalPlaylistsFromCloud();
 
         if (!isCloudPlaylist(appState.activePlaylistId) && appState.cloudPlaylists.length > 0) {
           appState.activePlaylistId = appState.cloudPlaylists[0].id;

@@ -381,9 +381,23 @@ body {
   flex-shrink: 0;
 }
 
-.playlist-item.active .cloud-pill {
+.cloud-linked-pill {
+  font-size: 0.60rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-full);
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.playlist-item.active .cloud-pill,
+.playlist-item.active .cloud-linked-pill {
   background: rgba(255, 255, 255, 0.25);
   color: #fff;
+  border-color: transparent;
 }
 
 .btn-copy-to-local {
