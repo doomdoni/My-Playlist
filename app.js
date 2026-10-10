@@ -391,6 +391,7 @@ window.onYouTubeIframeAPIReady = function() {
   ytPlayer = new YT.Player('yt-player', {
     height: '100%',
     width: '100%',
+    host: 'https://www.youtube-nocookie.com', // 🛡️ 쿠키 및 맞춤형 광고 트래커 원천 차단 (광고 빈도 최소화)
     playerVars: {
       playsinline: 1,
       autoplay: 1,
@@ -399,7 +400,9 @@ window.onYouTubeIframeAPIReady = function() {
       enablejsapi: 1,
       modestbranding: 1,
       origin: originUrl,
-      iv_load_policy: 3
+      iv_load_policy: 3, // 영상 내 배너 주석 및 프로모션 카드 비활성화
+      fs: 1,
+      disablekb: 0
     },
     events: {
       onReady: onPlayerReady,
