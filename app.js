@@ -145,6 +145,7 @@ const el = {
   btnFocusNext: document.getElementById('btn-focus-next'),
   btnFocusShuffle: document.getElementById('btn-focus-shuffle'),
   btnFocusRepeat: document.getElementById('btn-focus-repeat'),
+  focusRepeatBadge: document.getElementById('focus-repeat-badge'),
   focusProgressBar: document.getElementById('focus-progress-bar'),
   focusProgressFilled: document.getElementById('focus-progress-filled'),
   focusTimeCurrent: document.getElementById('focus-time-current'),
@@ -986,6 +987,44 @@ function toggleFocusMode() {
   }
 }
 
+function updateFocusCardDistances() {
+  if (!el.focusTrackList) return;
+  const cards = el.focusTrackList.querySelectorAll('.focus-track-card');
+  const activeIdx = appState.currentTrackIndex;
+
+  cards.forEach((card, idx) => {
+    const diff = Math.abs(idx - activeIdx);
+    card.setAttribute('data-diff', Math.min(diff, 4));
+
+    if (diff === 0) {
+      card.style.opacity = '1';
+      card.style.filter = 'blur(0px)';
+      card.style.transform = 'scale(1.05)';
+      card.style.pointerEvents = 'auto';
+    } else if (diff === 1) {
+      card.style.opacity = '0.55';
+      card.style.filter = 'blur(0.8px)';
+      card.style.transform = 'scale(0.88)';
+      card.style.pointerEvents = 'auto';
+    } else if (diff === 2) {
+      card.style.opacity = '0.28';
+      card.style.filter = 'blur(1.6px)';
+      card.style.transform = 'scale(0.78)';
+      card.style.pointerEvents = 'auto';
+    } else if (diff === 3) {
+      card.style.opacity = '0.12';
+      card.style.filter = 'blur(2.6px)';
+      card.style.transform = 'scale(0.70)';
+      card.style.pointerEvents = 'auto';
+    } else {
+      card.style.opacity = '0.04';
+      card.style.filter = 'blur(3.8px)';
+      card.style.transform = 'scale(0.64)';
+      card.style.pointerEvents = 'auto';
+    }
+  });
+}
+
 function renderFocusTrackList() {
   const currentPl = getCurrentPlaylist();
   if (!currentPl || !el.focusTrackList) return;
@@ -1027,6 +1066,8 @@ function renderFocusTrackList() {
 
     el.focusTrackList.appendChild(card);
   });
+
+  updateFocusCardDistances();
 }
 
 function updateFocusTrackListActive() {
@@ -1057,6 +1098,7 @@ function updateFocusTrackListActive() {
     }
   });
 
+  updateFocusCardDistances();
   centerActiveFocusTrack(true);
 }
 
@@ -1066,9 +1108,10 @@ function centerActiveFocusTrack(smooth = true) {
   if (!activeCard) return;
 
   requestAnimationFrame(() => {
+    // 뷰포트 내 수직 중앙 정확 계산
     const viewportHeight = el.focusCarouselViewport.clientHeight;
     const cardTop = activeCard.offsetTop;
-    const cardHeight = activeCard.clientHeight;
+    const cardHeight = activeCard.offsetHeight;
 
     const targetScrollTop = cardTop - (viewportHeight / 2) + (cardHeight / 2);
 
@@ -1805,7 +1848,15 @@ function updateRepeatUI() {
   }
 
   if (el.btnFocusRepeat) {
-    el.btnFocusRepeat.classList.toggle('active', !isNone);
+    if (isNone) {
+      el.btnFocusRepeat.classList.remove('active');
+      if (el.focusRepeatBadge) el.focusRepeatBadge.classList.add('hidden');
+      el.btnFocusRepeat.title = '반복 끔';
+    } else {
+      el.btnFocusRepeat.classList.add('active');
+      if (el.focusRepeatBadge) el.focusRepeatBadge.classList.toggle('hidden', !isOne);
+      el.btnFocusRepeat.title = isOne ? '한 곡 반복' : '전체 반복';
+    }
   }
 }
 
