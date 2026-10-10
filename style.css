@@ -921,12 +921,13 @@ body {
   transition: all 0.3s ease;
 }
 
-/* 영상 숨기기 모드: 유튜브 오디오는 멈추지 않고 화면만 축소/숨김 */
+/* 영상 숨기기 모드: 유튜브 오디오는 멈추지 않고 화면만 축소/숨김 (1px 유지하여 브라우저 엔진의 비활성화 방지) */
 .video-container.minimized {
-  height: 0 !important;
-  min-height: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-height: 1px !important;
   aspect-ratio: unset !important;
-  opacity: 0 !important;
+  opacity: 0.01 !important;
   pointer-events: none !important;
   margin: 0 !important;
   padding: 0 !important;
@@ -1595,8 +1596,20 @@ body {
   .content-body.mode-video .tracks-section {
     display: none;
   }
+  /* 모바일에서 트랙 목록 보기 모드일 때:
+     display: none을 사용하면 모바일 브라우저가 유튜브 iframe 렌더링 트리를 언마운트하여
+     오디오 재생이 중단되거나 백그라운드 전환 시 즉시 사망하므로,
+     화면 밖 1px 투명 오프스크린으로 활성 상태 유지! */
   .content-body.mode-tracks .player-view-section {
-    display: none;
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    opacity: 0.01 !important;
+    pointer-events: none !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    clip-path: inset(50%) !important;
+    z-index: -10 !important;
   }
 
   .tracks-section {
