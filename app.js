@@ -168,8 +168,63 @@ const el = {
   btnManualSyncPush: document.getElementById('btn-manual-sync-push'),
   btnManualSyncPull: document.getElementById('btn-manual-sync-pull'),
   btnDisconnectSync: document.getElementById('btn-disconnect-sync'),
-  syncStatusMsg: document.getElementById('sync-status-msg')
+  syncStatusMsg: document.getElementById('sync-status-msg'),
+
+  // ☁️ 연동할 플레이리스트 선택 뷰 요소
+  syncSelectPlaylistsView: document.getElementById('sync-select-playlists-view'),
+  btnSyncSelectAll: document.getElementById('btn-sync-select-all'),
+  btnSyncDeselectAll: document.getElementById('btn-sync-deselect-all'),
+  syncPlaylistChecklist: document.getElementById('sync-playlist-checklist'),
+  btnCancelSyncSelect: document.getElementById('btn-cancel-sync-select'),
+  btnConfirmCreateSync: document.getElementById('btn-confirm-create-sync'),
+  syncSelectedCountLabel: document.getElementById('sync-selected-count-label')
 };
+
+/* ==================== 🧹 플레이리스트 중복 제거 및 이름 정규화 유틸 ==================== */
+function cleanPlaylistName(name) {
+  if (!name || typeof name !== 'string') return '';
+  return name.replace(/\s*\((?:로컬|보존됨)\)+$/gi, '').trim();
+}
+
+function deduplicateLocalPlaylists() {
+  if (!appState.playlists || !Array.isArray(appState.playlists) || appState.playlists.length <= 1) return;
+
+  const map = new Map();
+  const result = [];
+
+  for (const pl of appState.playlists) {
+    if (!pl) continue;
+    const clean = cleanPlaylistName(pl.name);
+    pl.name = clean; // 이름 정규화
+
+    if (!map.has(clean)) {
+      map.set(clean, pl);
+      result.push(pl);
+    } else {
+      // 이미 동일한 이름의 플레이리스트가 존재하면: 곡 병합 (중복 곡 제외)
+      const existing = map.get(clean);
+      const existingTracks = existing.tracks || [];
+      const currentTracks = pl.tracks || [];
+
+      const seenIds = new Set(existingTracks.map(t => t.videoId || t.id));
+      currentTracks.forEach(t => {
+        const vid = t.videoId || t.id;
+        if (vid && !seenIds.has(vid)) {
+          seenIds.add(vid);
+          existingTracks.push(t);
+        }
+      });
+      existing.tracks = existingTracks;
+    }
+  }
+
+  appState.playlists = result;
+
+  // 활성 플레이리스트 검증
+  if (appState.activePlaylistId && !appState.playlists.some(p => p.id === appState.activePlaylistId)) {
+    appState.activePlaylistId = appState.playlists[0] ? appState.playlists[0].id : null;
+  }
+}
 
 /* ==================== 데이터 영속성 (LocalStorage) ==================== */
 function loadState() {
@@ -179,17 +234,8 @@ function loadState() {
       const parsed = JSON.parse(saved);
       appState.playlists = parsed.playlists || [];
 
-      // 🧹 기존에 중복 생성되었던 '(보존됨)' 복제 플리가 있다면 원본과 비교하여 깔끔하게 정리
-      if (Array.isArray(appState.playlists) && appState.playlists.length > 0) {
-        appState.playlists = appState.playlists.filter(pl => {
-          if (pl.name && pl.name.includes('(보존됨)')) {
-            const baseName = pl.name.replace(/\s*\(보존됨\)+/g, '').trim();
-            // 원본 이름을 가진 플레이리스트가 이미 존재한다면 복제본은 제거
-            return !appState.playlists.some(other => other !== pl && other.name === baseName);
-          }
-          return true;
-        });
-      }
+      // 🧹 기존에 중복 생성되었던 모든 복제 플리 일괄 정리 및 병합
+      deduplicateLocalPlaylists();
 
       appState.activePlaylistId = parsed.activePlaylistId || (appState.playlists[0] ? appState.playlists[0].id : null);
       if (appState.playlists.length > 0 && !appState.playlists.some(p => p.id === appState.activePlaylistId)) {
@@ -1600,12 +1646,14 @@ function renderPlaylists() {
 
   if (hasLocal) {
     appState.playlists.forEach(pl => {
-      // 💡 연동 조건 엄격화: 현재 기기가 동기화 방에 연결되어 있고,
-      // 해당 로컬 플리가 이 방의 클라우드 플리에서 직접 '내 로컬에 영구 복사'된 경우에만 연동 표시!
+      // 💡 연동 조건: 현재 기기가 동기화 방에 연결되어 있고,
+      // 해당 로컬 플리가 클라우드 플리로 선택/연동되었거나 클라우드에서 내려받은 경우에만 연동 표시!
       const isCloudLinked = !!(
         activeSyncRoomId &&
-        pl.originCloudPlId &&
-        (appState.cloudPlaylists || []).some(cp => cp.id === pl.originCloudPlId)
+        (
+          (pl.originCloudPlId && (appState.cloudPlaylists || []).some(cp => cp.id === pl.originCloudPlId)) ||
+          (appState.cloudPlaylists || []).some(cp => cp.originLocalPlId === pl.id)
+        )
       );
       const li = document.createElement('li');
       li.className = `playlist-item ${pl.id === appState.activePlaylistId ? 'active' : ''}`;
@@ -1696,18 +1744,41 @@ function copyCloudPlaylistToLocal(cloudPlId) {
   const cloudPl = (appState.cloudPlaylists || []).find(p => p.id === cloudPlId);
   if (!cloudPl) return;
 
+  const cleanName = cleanPlaylistName(cloudPl.name);
+
+  // 이미 로컬에 동일한 이름이나 출처를 가진 플리가 있는지 확인
+  const existing = (appState.playlists || []).find(lp =>
+    (cloudPl.originLocalPlId && lp.id === cloudPl.originLocalPlId) ||
+    (lp.originCloudPlId && lp.originCloudPlId === cloudPl.id) ||
+    cleanPlaylistName(lp.name) === cleanName
+  );
+
+  if (existing) {
+    existing.tracks = JSON.parse(JSON.stringify(cloudPl.tracks || []));
+    existing.originCloudPlId = cloudPl.id;
+    existing.syncWithCloud = true;
+    existing.name = cleanName;
+    deduplicateLocalPlaylists();
+    saveState();
+    renderPlaylists();
+    alert(`'${existing.name}' 플레이리스트가 최신 곡 목록으로 안전하게 동기화되었습니다!`);
+    return;
+  }
+
   const newLocalPl = {
     id: 'pl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-    name: `${cloudPl.name} (로컬)`,
+    name: cleanName,
     tracks: JSON.parse(JSON.stringify(cloudPl.tracks || [])),
-    originCloudPlId: cloudPl.id, // 🔗 클라우드 출처 ID 기록 (클라우드 업데이트 시 자동 동기화용)
+    originCloudPlId: cloudPl.id,
     syncWithCloud: true
   };
 
+  if (!appState.playlists) appState.playlists = [];
   appState.playlists.push(newLocalPl);
+  deduplicateLocalPlaylists();
   saveState();
   renderPlaylists();
-  alert(`'${cloudPl.name}' 플레이리스트가 내 로컬 플레이리스트에 안전하게 저장되었습니다!\n\n(클라우드에 새 곡이 추가되거나 변경되면 이 로컬 플레이리스트에도 자동으로 반영됩니다.)`);
+  alert(`'${newLocalPl.name}' 플레이리스트가 내 로컬 플레이리스트에 안전하게 저장되었습니다!\n\n(클라우드에 새 곡이 추가되거나 변경되면 이 로컬 플레이리스트에도 자동으로 반영됩니다.)`);
 }
 
 function renderTracks() {
@@ -2238,6 +2309,11 @@ function updateSyncUI() {
     el.syncBtnText.textContent = isConnected ? '동기화 관리 (연결됨)' : '기기 실시간 동기화';
   }
 
+  // 플레이리스트 선택 뷰는 기본적으로 숨김 처리
+  if (el.syncSelectPlaylistsView) {
+    el.syncSelectPlaylistsView.classList.add('hidden');
+  }
+
   if (isConnected) {
     if (el.syncDisconnectedView) el.syncDisconnectedView.classList.add('hidden');
     if (el.syncConnectedView) el.syncConnectedView.classList.remove('hidden');
@@ -2276,6 +2352,65 @@ function closeSyncModal() {
   if (el.syncModal) {
     el.syncModal.classList.add('hidden');
     if (el.syncStatusMsg) el.syncStatusMsg.classList.add('hidden');
+    if (el.syncSelectPlaylistsView) el.syncSelectPlaylistsView.classList.add('hidden');
+    if (!activeSyncRoomId && el.syncDisconnectedView) el.syncDisconnectedView.classList.remove('hidden');
+  }
+}
+
+// ☁️ 연동할 플레이리스트 선택 단계 열기 (방장 전용)
+function openPlaylistSelectionForSync() {
+  deduplicateLocalPlaylists();
+
+  if (!appState.playlists || appState.playlists.length === 0) {
+    showSyncStatus('연동할 로컬 플레이리스트가 없습니다. 먼저 플레이리스트를 만들어주세요.', 'error', 4000);
+    return;
+  }
+
+  if (el.syncDisconnectedView) el.syncDisconnectedView.classList.add('hidden');
+  if (el.syncSelectPlaylistsView) el.syncSelectPlaylistsView.classList.remove('hidden');
+
+  renderSyncPlaylistChecklist();
+}
+
+function renderSyncPlaylistChecklist() {
+  if (!el.syncPlaylistChecklist) return;
+  el.syncPlaylistChecklist.innerHTML = '';
+
+  appState.playlists.forEach(pl => {
+    const item = document.createElement('label');
+    item.className = 'sync-check-item selected';
+    item.innerHTML = `
+      <input type="checkbox" class="sync-pl-checkbox" value="${escapeHtml(pl.id)}" checked>
+      <span class="sync-check-name">${escapeHtml(pl.name)}</span>
+      <span class="sync-check-count">${(pl.tracks || []).length}곡</span>
+    `;
+
+    const cb = item.querySelector('input');
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        item.classList.add('selected');
+      } else {
+        item.classList.remove('selected');
+      }
+      updateSyncSelectedCount();
+    });
+
+    el.syncPlaylistChecklist.appendChild(item);
+  });
+
+  updateSyncSelectedCount();
+}
+
+function updateSyncSelectedCount() {
+  if (!el.syncPlaylistChecklist) return;
+  const checked = el.syncPlaylistChecklist.querySelectorAll('.sync-pl-checkbox:checked');
+  const count = checked.length;
+
+  if (el.syncSelectedCountLabel) {
+    el.syncSelectedCountLabel.textContent = `${count}개`;
+  }
+  if (el.btnConfirmCreateSync) {
+    el.btnConfirmCreateSync.disabled = (count === 0);
   }
 }
 
@@ -2289,7 +2424,8 @@ function serializeSyncPayload() {
     activePlaylistId: appState.activePlaylistId,
     playlists: (cloudList || []).map(pl => ({
       id: pl.id,
-      name: pl.name,
+      name: cleanPlaylistName(pl.name),
+      originLocalPlId: pl.originLocalPlId || null,
       createdAt: pl.createdAt || Date.now(),
       tracks: (pl.tracks || []).map(tr => {
         const vid = tr.videoId || tr.id;
@@ -2481,22 +2617,41 @@ async function downloadSyncPayloadFromCloud(rawCode) {
   return { parsed, rawKey: cleanCode, pasteKey: targetKey, isClosed: false };
 }
 
-async function createSyncRoom() {
+async function createSyncRoom(selectedIds = null) {
   if (isSyncingNow) return;
   isSyncingNow = true;
 
+  if (el.btnConfirmCreateSync) {
+    el.btnConfirmCreateSync.disabled = true;
+    el.btnConfirmCreateSync.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 코드 생성 중...';
+  }
   if (el.btnCreateSyncRoom) {
     el.btnCreateSyncRoom.disabled = true;
-    el.btnCreateSyncRoom.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 코드 생성 중...';
   }
-  showSyncStatus('고정 클라우드 동기화 코드를 안전하게 발급받고 있습니다...', 'info', 0);
+  showSyncStatus('선택한 플레이리스트로 동기화 코드를 안전하게 발급받고 있습니다...', 'info', 0);
 
   try {
-    // 만약 클라우드 플레이리스트가 비어있다면 현재 로컬 플레이리스트를 복사하여 초기 클라우드 플리로 설정
-    if (!appState.cloudPlaylists || appState.cloudPlaylists.length === 0) {
-      appState.cloudPlaylists = (appState.playlists || []).map(pl => ({
-        id: 'cpl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-        name: pl.name,
+    deduplicateLocalPlaylists();
+
+    // 사용자가 체크박스로 선택한 플레이리스트만 엄선 (선택값이 없으면 전체 로컬 플리)
+    let targets = appState.playlists || [];
+    if (Array.isArray(selectedIds) && selectedIds.length > 0) {
+      targets = targets.filter(pl => selectedIds.includes(pl.id));
+    }
+
+    if (targets.length === 0) {
+      throw new Error('선택된 플레이리스트가 없습니다. 최소 1개 이상 선택해주세요.');
+    }
+
+    // 선택된 로컬 플리만 클라우드 플리로 변환하고 원본 ID(originLocalPlId)를 명시적으로 연동!
+    appState.cloudPlaylists = targets.map(pl => {
+      const cId = 'cpl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      pl.originCloudPlId = cId;
+      pl.syncWithCloud = true;
+      return {
+        id: cId,
+        name: cleanPlaylistName(pl.name),
+        originLocalPlId: pl.id, // 🔗 방장 기기의 원본 로컬 플리 ID 기억!
         createdAt: pl.createdAt || Date.now(),
         tracks: (pl.tracks || []).map(tr => {
           const vid = tr.videoId || tr.id;
@@ -2508,10 +2663,18 @@ async function createSyncRoom() {
             thumbnail: tr.thumbnail || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`
           };
         })
-      }));
-    }
+      };
+    });
 
-    // 💡 PC를 클라우드 플레이리스트로 즉시 전환하여 추가/삭제가 즉시 동기화되도록 보장
+    // 선택되지 않은 나머지 로컬 플리는 동기화 연동 해제
+    appState.playlists.forEach(pl => {
+      if (!targets.some(t => t.id === pl.id)) {
+        pl.syncWithCloud = false;
+        pl.originCloudPlId = null;
+      }
+    });
+
+    // 방장 기기의 활성 플레이리스트를 선택된 첫 번째 클라우드 플리로 전환
     if (appState.cloudPlaylists.length > 0) {
       appState.activePlaylistId = appState.cloudPlaylists[0].id;
     }
@@ -2530,15 +2693,18 @@ async function createSyncRoom() {
     renderPlaylists();
     renderTracks();
     startCloudSyncPolling();
-    showSyncStatus(`고정 동기화 코드가 발급되었습니다: ${roomCode}`, 'success', 5000);
+    showSyncStatus(`동기화 코드가 발급되었습니다 (${targets.length}개 연동): ${roomCode}`, 'success', 5000);
   } catch (err) {
     console.error('Create sync room error:', err);
     showSyncStatus('동기화 코드 생성 실패: ' + err.message, 'error', 5000);
   } finally {
     isSyncingNow = false;
+    if (el.btnConfirmCreateSync) {
+      el.btnConfirmCreateSync.disabled = false;
+      el.btnConfirmCreateSync.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> <span id="sync-selected-count-label">0개</span> 동기화 시작';
+    }
     if (el.btnCreateSyncRoom) {
       el.btnCreateSyncRoom.disabled = false;
-      el.btnCreateSyncRoom.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> 새 동기화 코드 발급';
     }
   }
 }
@@ -2570,7 +2736,8 @@ async function joinSyncRoom(inputRawCode) {
       // 썸네일 완전 복원 및 데이터 매핑 (로컬 플레이리스트는 100% 보존!)
       appState.cloudPlaylists = parsed.playlists.map(pl => ({
         id: pl.id || `cpl_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        name: pl.name || '클라우드 플레이리스트',
+        name: cleanPlaylistName(pl.name) || '클라우드 플레이리스트',
+        originLocalPlId: pl.originLocalPlId || null,
         createdAt: pl.createdAt || Date.now(),
         tracks: (pl.tracks || []).map(tr => {
           const vid = tr.videoId || tr.id;
@@ -2598,6 +2765,7 @@ async function joinSyncRoom(inputRawCode) {
 
       // 🌟 클라우드에서 받아온 로컬 플리만 골라서 동일하게 트랙 업데이트!
       syncLinkedLocalPlaylistsFromCloud();
+      deduplicateLocalPlaylists();
 
       saveState();
       renderPlaylists();
@@ -2629,16 +2797,18 @@ function scheduleCloudPush() {
   }, 350);
 }
 
-// 🔗 클라우드에서 업데이트된 트랙 데이터를 '클라우드에서 내려받은 로컬 플레이리스트'에만 정확히 동기화
+// 🔗 클라우드에서 업데이트된 트랙 데이터를 '연동된 로컬 플레이리스트'에만 정확히 동기화
 function syncLinkedLocalPlaylistsFromCloud() {
   if (!activeSyncRoomId || !appState.playlists || !appState.cloudPlaylists) return;
   let hasLocalChange = false;
 
   appState.playlists.forEach(localPl => {
-    // 💡 엄격한 조건: 해당 로컬 플리가 이 방의 클라우드 플리에서 직접 '내 로컬에 영구 복사'된 경우만 (originCloudPlId 일치)
-    if (!localPl.originCloudPlId) return;
+    // 💡 방장 기기의 originLocalPlId 일치 또는 게스트 기기의 originCloudPlId 일치
+    const matchingCloudPl = appState.cloudPlaylists.find(cp => 
+      (cp.originLocalPlId && cp.originLocalPlId === localPl.id) ||
+      (localPl.originCloudPlId && cp.id === localPl.originCloudPlId)
+    );
 
-    const matchingCloudPl = appState.cloudPlaylists.find(cp => cp.id === localPl.originCloudPlId);
     if (matchingCloudPl && Array.isArray(matchingCloudPl.tracks)) {
       localPl.syncWithCloud = true;
       localPl.tracks = JSON.parse(JSON.stringify(matchingCloudPl.tracks));
@@ -2651,11 +2821,15 @@ function syncLinkedLocalPlaylistsFromCloud() {
   }
 }
 
-// 🔗 클라우드에서 내려받은 로컬 플리에서 곡이 추가/삭제/이동된 경우 클라우드 플리에도 반영
+// 🔗 연동된 로컬 플리에서 곡이 추가/삭제/이동된 경우 클라우드 플리에도 반영
 function syncLinkedLocalToCloudPlaylist(localPl) {
-  if (!activeSyncRoomId || !localPl || !localPl.originCloudPlId || !appState.cloudPlaylists) return false;
+  if (!activeSyncRoomId || !localPl || !appState.cloudPlaylists) return false;
 
-  const matchingCloudPl = appState.cloudPlaylists.find(cp => cp.id === localPl.originCloudPlId);
+  const matchingCloudPl = appState.cloudPlaylists.find(cp => 
+    (cp.originLocalPlId && cp.originLocalPlId === localPl.id) ||
+    (localPl.originCloudPlId && cp.id === localPl.originCloudPlId)
+  );
+
   if (matchingCloudPl) {
     matchingCloudPl.tracks = JSON.parse(JSON.stringify(localPl.tracks || []));
     scheduleCloudPush();
@@ -2784,10 +2958,13 @@ function preserveCloudPlaylistsToLocal(isHost = false) {
   let hasChanges = false;
 
   appState.cloudPlaylists.forEach(cloudPl => {
+    const cleanPlName = cleanPlaylistName(cloudPl.name);
+
     // 1. 이미 연결된 로컬 플리가 있거나 동일한 이름을 가진 로컬 플리가 있는지 확인
     const linkedLocal = appState.playlists.find(lp => 
+      (cloudPl.originLocalPlId && lp.id === cloudPl.originLocalPlId) ||
       (lp.originCloudPlId && lp.originCloudPlId === cloudPl.id) ||
-      lp.name === cloudPl.name
+      cleanPlaylistName(lp.name) === cleanPlName
     );
 
     if (linkedLocal) {
@@ -2795,17 +2972,18 @@ function preserveCloudPlaylistsToLocal(isHost = false) {
       if (Array.isArray(cloudPl.tracks)) {
         linkedLocal.tracks = JSON.parse(JSON.stringify(cloudPl.tracks));
       }
+      linkedLocal.name = cleanPlName;
       linkedLocal.originCloudPlId = null;
       linkedLocal.syncWithCloud = false;
       hasChanges = true;
     } else {
-      // 2. 일치하는 로컬 플리가 없는 경우:
+      // 2. 일치하는 로컬 플리가 전혀 없는 경우:
       // 🛑 방장 기기(isHost === true)인 경우에는 중복/보존 플리를 절대 새로 생성하지 않음!
       if (!isHost) {
         // 참여 기기(게스트)인 경우에만 로컬에 없던 클라우드 플리를 새 로컬 플리로 안전하게 보존
         appState.playlists.push({
           id: 'pl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-          name: cloudPl.name,
+          name: cleanPlName,
           tracks: JSON.parse(JSON.stringify(cloudPl.tracks || [])),
           createdAt: cloudPl.createdAt || Date.now()
         });
@@ -2814,29 +2992,15 @@ function preserveCloudPlaylistsToLocal(isHost = false) {
     }
   });
 
-  // 🛑 방장 기기인 경우, 혹시 이전에 잘못 중복 생성된 '(보존됨)' 복제본이 남아있다면 즉시 정리
-  if (isHost) {
-    const beforeLen = appState.playlists.length;
-    appState.playlists = appState.playlists.filter(pl => {
-      if (pl.name && pl.name.includes('(보존됨)')) {
-        const baseName = pl.name.replace(/\s*\(보존됨\)+/g, '').trim();
-        return !appState.playlists.some(other => other !== pl && other.name === baseName);
-      }
-      return true;
-    });
-    if (appState.playlists.length !== beforeLen) {
-      hasChanges = true;
-    }
-  }
-
-  // 기존 로컬 플리 중 혹시 남아있을 수 있는 syncWithCloud / originCloudPlId 플래그도 안전하게 해제
+  // 모든 로컬 플리의 이름 정규화 및 syncWithCloud 플래그 해제
   appState.playlists.forEach(lp => {
-    if (lp.syncWithCloud || lp.originCloudPlId) {
-      lp.syncWithCloud = false;
-      lp.originCloudPlId = null;
-      hasChanges = true;
-    }
+    lp.name = cleanPlaylistName(lp.name);
+    lp.syncWithCloud = false;
+    lp.originCloudPlId = null;
   });
+
+  // 🧹 모든 기기에서 동일한 플리 복제 완전 방지 및 병합
+  deduplicateLocalPlaylists();
 
   return hasChanges;
 }
@@ -3232,7 +3396,48 @@ function setupEventListeners() {
       if (e.target === el.syncModal) closeSyncModal();
     });
   }
-  if (el.btnCreateSyncRoom) el.btnCreateSyncRoom.addEventListener('click', createSyncRoom);
+  // ☁️ 동기화 연동 플레이리스트 선택 및 코드 발급 이벤트
+  if (el.btnCreateSyncRoom) el.btnCreateSyncRoom.addEventListener('click', openPlaylistSelectionForSync);
+  if (el.btnCancelSyncSelect) {
+    el.btnCancelSyncSelect.addEventListener('click', () => {
+      if (el.syncSelectPlaylistsView) el.syncSelectPlaylistsView.classList.add('hidden');
+      if (el.syncDisconnectedView) el.syncDisconnectedView.classList.remove('hidden');
+    });
+  }
+  if (el.btnSyncSelectAll) {
+    el.btnSyncSelectAll.addEventListener('click', () => {
+      if (!el.syncPlaylistChecklist) return;
+      el.syncPlaylistChecklist.querySelectorAll('.sync-check-item').forEach(item => {
+        const cb = item.querySelector('input');
+        if (cb) cb.checked = true;
+        item.classList.add('selected');
+      });
+      updateSyncSelectedCount();
+    });
+  }
+  if (el.btnSyncDeselectAll) {
+    el.btnSyncDeselectAll.addEventListener('click', () => {
+      if (!el.syncPlaylistChecklist) return;
+      el.syncPlaylistChecklist.querySelectorAll('.sync-check-item').forEach(item => {
+        const cb = item.querySelector('input');
+        if (cb) cb.checked = false;
+        item.classList.remove('selected');
+      });
+      updateSyncSelectedCount();
+    });
+  }
+  if (el.btnConfirmCreateSync) {
+    el.btnConfirmCreateSync.addEventListener('click', () => {
+      if (!el.syncPlaylistChecklist) return;
+      const selected = Array.from(el.syncPlaylistChecklist.querySelectorAll('.sync-pl-checkbox:checked')).map(cb => cb.value);
+      if (selected.length === 0) {
+        showSyncStatus('최소 1개 이상의 플레이리스트를 선택해주세요.', 'error', 3000);
+        return;
+      }
+      createSyncRoom(selected);
+    });
+  }
+
   if (el.btnJoinSyncRoom) {
     el.btnJoinSyncRoom.addEventListener('click', () => {
       if (el.inputSyncCode) joinSyncRoom(el.inputSyncCode.value);
