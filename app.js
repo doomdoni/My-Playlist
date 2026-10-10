@@ -498,6 +498,9 @@ function onPlayerReady(event) {
 /* ==================== 📱 화면 꺼짐 방지(WakeLock) & 백그라운드 재생 유지 ==================== */
 let wakeLockSentinel = null;
 let isWakeLockEnabled = true;
+let silentAudioCtx = null;
+let silentOscillator = null;
+let backgroundKeepAliveInterval = null;
 
 async function requestScreenWakeLock() {
   if (!isWakeLockEnabled || !('wakeLock' in navigator)) return;
@@ -528,6 +531,7 @@ function toggleWakeLock() {
   isWakeLockEnabled = !isWakeLockEnabled;
   if (isWakeLockEnabled) {
     requestScreenWakeLock();
+    startSilentAudioDriver();
     showStatusMsg('☀️ 화면 꺼짐 방지(화면 켜짐 유지)가 활성화되었습니다.', 'info');
   } else {
     releaseScreenWakeLock();
@@ -543,11 +547,53 @@ function updateWakeLockUI(active) {
   }
 }
 
+// 🛡️ 모바일 브라우저(크롬/삼성인터넷/사파리) 백그라운드 오디오 세션 유지 엔진
 function startSilentAudioDriver() {
+  // 1. HTML5 <audio> 무음 드라이버 재생
   if (el.silentAudioDriver) {
     try {
+      el.silentAudioDriver.volume = 0.01; // 일부 모바일 브라우저는 volume 0인 요소를 비활성화하므로 극저음량 설정
       el.silentAudioDriver.play().catch(() => {});
     } catch (e) {}
+  }
+
+  // 2. Web Audio API 기반 오디오 버퍼 루프 활성화 (브라우저가 오디오 탭으로 영구 인식)
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioContextClass) {
+      if (!silentAudioCtx) {
+        silentAudioCtx = new AudioContextClass();
+      }
+      if (silentAudioCtx.state === 'suspended') {
+        silentAudioCtx.resume();
+      }
+      if (!silentOscillator) {
+        // 사람이 들을 수 없는 극저주파(15Hz)를 0.0001 볼륨으로 지속 출력하여 브라우저의 백그라운드 태스크 중단 방지
+        const osc = silentAudioCtx.createOscillator();
+        const gainNode = silentAudioCtx.createGain();
+        osc.frequency.setValueAtTime(15, silentAudioCtx.currentTime);
+        gainNode.gain.setValueAtTime(0.0001, silentAudioCtx.currentTime);
+        osc.connect(gainNode);
+        gainNode.connect(silentAudioCtx.destination);
+        osc.start();
+        silentOscillator = osc;
+      }
+    }
+  } catch (e) {}
+
+  // 3. 백그라운드 진입 시 유튜브가 일시정지되는 현상 자동 감시 및 즉시 복구 타이머
+  if (!backgroundKeepAliveInterval) {
+    backgroundKeepAliveInterval = setInterval(() => {
+      if (appState.isPlaying && ytPlayer && isPlayerReady) {
+        try {
+          const state = ytPlayer.getPlayerState();
+          // 화면이 꺼지거나 백그라운드로 가서 브라우저가 강제로 PAUSED(2) 상태로 바꾼 경우 자동 재개
+          if (state === YT.PlayerState.PAUSED) {
+            ytPlayer.playVideo();
+          }
+        } catch (e) {}
+      }
+    }, 1000);
   }
 }
 
@@ -555,6 +601,15 @@ function pauseSilentAudioDriver() {
   if (el.silentAudioDriver) {
     try {
       el.silentAudioDriver.pause();
+    } catch (e) {}
+  }
+  if (backgroundKeepAliveInterval) {
+    clearInterval(backgroundKeepAliveInterval);
+    backgroundKeepAliveInterval = null;
+  }
+  if (silentAudioCtx && silentAudioCtx.state === 'running') {
+    try {
+      silentAudioCtx.suspend();
     } catch (e) {}
   }
 }
@@ -568,17 +623,27 @@ function updateMediaSession(track) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
       artist: plName,
-      album: 'YouTube Playlist',
+      album: 'My Playlist Hub',
       artwork: [
-        { src: track.thumbnail, sizes: '512x512', type: 'image/jpeg' }
+        { src: track.thumbnail, sizes: '512x512', type: 'image/jpeg' },
+        { src: track.thumbnail, sizes: '256x256', type: 'image/jpeg' },
+        { src: track.thumbnail, sizes: '128x128', type: 'image/jpeg' }
       ]
     });
 
+    navigator.mediaSession.playbackState = appState.isPlaying ? 'playing' : 'paused';
+
     navigator.mediaSession.setActionHandler('play', () => {
-      if (ytPlayer && isPlayerReady) ytPlayer.playVideo();
+      if (ytPlayer && isPlayerReady) {
+        ytPlayer.playVideo();
+        startSilentAudioDriver();
+      }
     });
     navigator.mediaSession.setActionHandler('pause', () => {
-      if (ytPlayer && isPlayerReady) ytPlayer.pauseVideo();
+      if (ytPlayer && isPlayerReady) {
+        ytPlayer.pauseVideo();
+        pauseSilentAudioDriver();
+      }
     });
     navigator.mediaSession.setActionHandler('previoustrack', () => {
       playPrevTrack();
@@ -604,8 +669,23 @@ function onPlayerStateChange(event) {
     requestScreenWakeLock();
     startSilentAudioDriver();
   } else if (event.data === YT.PlayerState.PAUSED) {
+    // 🛡️ 모바일에서 화면이 꺼지거나 백그라운드로 전환될 때 브라우저가 강제로 PAUSED 이벤트를 발생시키는 경우 감지
+    if (document.hidden && appState.isPlaying) {
+      // 사용자가 정지 버튼을 누른 것이 아니라 화면이 꺼져서 브라우저가 정지시킨 것이므로 즉시 재생 재개 시도!
+      startSilentAudioDriver();
+      if (ytPlayer && isPlayerReady) {
+        try {
+          ytPlayer.playVideo();
+        } catch (e) {}
+      }
+      return;
+    }
+
     appState.isPlaying = false;
     updatePlayPauseUI(false);
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'paused';
+    }
     stopProgressTimer();
     setVisualizerState(false);
     pauseSilentAudioDriver();
@@ -3503,9 +3583,21 @@ function setupEventListeners() {
     el.btnWakeLock.addEventListener('click', toggleWakeLock);
   }
 
-  // 화면 복귀 및 탭 전환 시 자동 복구 & 동기화
+  // 화면 꺼짐(백그라운드 진입) 및 화면 복귀 시 자동 방어 & 복구
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
+    if (document.hidden) {
+      // 📱 화면이 꺼지거나 다른 앱으로 전환되었을 때:
+      if (appState.isPlaying) {
+        // 무음 오디오 세션을 적극 가동하여 OS가 페이지를 슬립시키지 않도록 유지
+        startSilentAudioDriver();
+        if (ytPlayer && isPlayerReady) {
+          try {
+            ytPlayer.playVideo();
+          } catch (e) {}
+        }
+      }
+    } else {
+      // 📱 화면이 다시 켜졌을 때:
       if (activeSyncRoomId) {
         pullStateFromCloud(false);
       }
