@@ -178,7 +178,23 @@ function loadState() {
     if (saved) {
       const parsed = JSON.parse(saved);
       appState.playlists = parsed.playlists || [];
+
+      // 🧹 기존에 중복 생성되었던 '(보존됨)' 복제 플리가 있다면 원본과 비교하여 깔끔하게 정리
+      if (Array.isArray(appState.playlists) && appState.playlists.length > 0) {
+        appState.playlists = appState.playlists.filter(pl => {
+          if (pl.name && pl.name.includes('(보존됨)')) {
+            const baseName = pl.name.replace(/\s*\(보존됨\)+/g, '').trim();
+            // 원본 이름을 가진 플레이리스트가 이미 존재한다면 복제본은 제거
+            return !appState.playlists.some(other => other !== pl && other.name === baseName);
+          }
+          return true;
+        });
+      }
+
       appState.activePlaylistId = parsed.activePlaylistId || (appState.playlists[0] ? appState.playlists[0].id : null);
+      if (appState.playlists.length > 0 && !appState.playlists.some(p => p.id === appState.activePlaylistId)) {
+        appState.activePlaylistId = appState.playlists[0].id;
+      }
       appState.settings = Object.assign({}, DEFAULT_DATA.settings, parsed.settings);
     } else {
       appState.playlists = [];
@@ -2760,37 +2776,58 @@ async function pullStateFromCloud(showToast = false) {
 }
 
 // 🛡️ [삭제 방지 핵심 로직] 동기화 해제 시 클라우드 플레이리스트가 유실되지 않도록 로컬 플레이리스트로 영구 보존
-function preserveCloudPlaylistsToLocal() {
+// 🛑 isHost === true (방장 기기)인 경우: 이미 로컬 원본이 있으므로 보존/복제 플리를 절대 새로 생성하지 않음! (무한 복제 원천 차단)
+function preserveCloudPlaylistsToLocal(isHost = false) {
   if (!appState.cloudPlaylists || appState.cloudPlaylists.length === 0) return false;
   if (!appState.playlists) appState.playlists = [];
 
   let hasChanges = false;
 
   appState.cloudPlaylists.forEach(cloudPl => {
-    // 1. 이미 연결된 로컬 플리가 있는지 확인
-    const linkedLocal = appState.playlists.find(lp => lp.originCloudPlId === cloudPl.id);
+    // 1. 이미 연결된 로컬 플리가 있거나 동일한 이름을 가진 로컬 플리가 있는지 확인
+    const linkedLocal = appState.playlists.find(lp => 
+      (lp.originCloudPlId && lp.originCloudPlId === cloudPl.id) ||
+      lp.name === cloudPl.name
+    );
+
     if (linkedLocal) {
-      // 최신 트랙 데이터 반영 및 연동 플래그 정리
-      if (Array.isArray(cloudPl.tracks) && cloudPl.tracks.length > 0) {
+      // 이미 로컬에 존재하는 플리라면: 최신 트랙만 동기화하고 연동 플래그 정리 (새 플리 절대 생성 안 함!)
+      if (Array.isArray(cloudPl.tracks)) {
         linkedLocal.tracks = JSON.parse(JSON.stringify(cloudPl.tracks));
       }
       linkedLocal.originCloudPlId = null;
       linkedLocal.syncWithCloud = false;
       hasChanges = true;
     } else {
-      // 2. 로컬에 아직 없는 클라우드 플리면 안전하게 새 로컬 플리로 이전 등록
-      const nameExists = appState.playlists.some(lp => lp.name === cloudPl.name);
-      const safeName = nameExists ? `${cloudPl.name} (보존됨)` : cloudPl.name;
-
-      appState.playlists.push({
-        id: 'pl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-        name: safeName,
-        tracks: JSON.parse(JSON.stringify(cloudPl.tracks || [])),
-        createdAt: cloudPl.createdAt || Date.now()
-      });
-      hasChanges = true;
+      // 2. 일치하는 로컬 플리가 없는 경우:
+      // 🛑 방장 기기(isHost === true)인 경우에는 중복/보존 플리를 절대 새로 생성하지 않음!
+      if (!isHost) {
+        // 참여 기기(게스트)인 경우에만 로컬에 없던 클라우드 플리를 새 로컬 플리로 안전하게 보존
+        appState.playlists.push({
+          id: 'pl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+          name: cloudPl.name,
+          tracks: JSON.parse(JSON.stringify(cloudPl.tracks || [])),
+          createdAt: cloudPl.createdAt || Date.now()
+        });
+        hasChanges = true;
+      }
     }
   });
+
+  // 🛑 방장 기기인 경우, 혹시 이전에 잘못 중복 생성된 '(보존됨)' 복제본이 남아있다면 즉시 정리
+  if (isHost) {
+    const beforeLen = appState.playlists.length;
+    appState.playlists = appState.playlists.filter(pl => {
+      if (pl.name && pl.name.includes('(보존됨)')) {
+        const baseName = pl.name.replace(/\s*\(보존됨\)+/g, '').trim();
+        return !appState.playlists.some(other => other !== pl && other.name === baseName);
+      }
+      return true;
+    });
+    if (appState.playlists.length !== beforeLen) {
+      hasChanges = true;
+    }
+  }
 
   // 기존 로컬 플리 중 혹시 남아있을 수 있는 syncWithCloud / originCloudPlId 플래그도 안전하게 해제
   appState.playlists.forEach(lp => {
@@ -2811,8 +2848,8 @@ function handleRemoteSyncClosed() {
     syncPollingTimer = null;
   }
 
-  // 🛡️ [다른 기기에서 삭제 방지]
-  preserveCloudPlaylistsToLocal();
+  // 🛡️ [다른 기기에서 삭제 방지] 참여 기기이므로 isHost = false
+  preserveCloudPlaylistsToLocal(false);
 
   activeSyncRoomId = null;
   lastSyncedPasteKey = null;
@@ -2868,8 +2905,9 @@ async function disconnectSyncRoom() {
     }
   }
 
-  // 2. 🛡️ [삭제 방지] 현재 기기의 클라우드 플레이리스트를 로컬 플레이리스트에 안전하게 보존
-  preserveCloudPlaylistsToLocal();
+  // 2. 🛡️ [삭제 및 중복 복제 방지]
+  // wasHost 여부를 전달하여 방장 기기에서는 중복/보존 플리가 새로 생성되지 않도록 철저히 차단!
+  preserveCloudPlaylistsToLocal(wasHost);
 
   if (syncPollingTimer) {
     clearInterval(syncPollingTimer);
