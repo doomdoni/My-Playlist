@@ -150,6 +150,9 @@ const el = {
   focusProgressFilled: document.getElementById('focus-progress-filled'),
   focusTimeCurrent: document.getElementById('focus-time-current'),
   focusTimeTotal: document.getElementById('focus-time-total'),
+  btnFocusMute: document.getElementById('btn-focus-mute'),
+  iconFocusVolume: document.getElementById('icon-focus-volume'),
+  focusVolumeSlider: document.getElementById('focus-volume-slider'),
 
   // 기기 실시간 동기화 (클라우드 룸)
   btnCloudSync: document.getElementById('btn-cloud-sync'),
@@ -479,6 +482,7 @@ function onPlayerReady(event) {
   isPlayerReady = true;
   ytPlayer.setVolume(appState.settings.volume);
   if (el.volumeSlider) el.volumeSlider.value = appState.settings.volume;
+  if (el.focusVolumeSlider) el.focusVolumeSlider.value = appState.settings.volume;
   updateVolumeIcon(appState.settings.volume);
 
   if (pendingVideoLoad) {
@@ -1028,6 +1032,8 @@ function openFocusMode() {
   updatePlayPauseUI(appState.isPlaying);
   updateRepeatUI();
   updateShuffleUI();
+  if (el.focusVolumeSlider) el.focusVolumeSlider.value = appState.settings.volume;
+  updateVolumeIcon(appState.settings.volume);
 }
 
 function closeFocusMode() {
@@ -1968,6 +1974,13 @@ function updateVolumeIcon(vol) {
 
   if (el.iconVolume) el.iconVolume.className = iconClass;
   if (el.iconMobileVolume) el.iconMobileVolume.className = iconClass;
+  if (el.iconFocusVolume) el.iconFocusVolume.className = iconClass;
+  if (el.focusVolumeSlider && parseInt(el.focusVolumeSlider.value, 10) !== vol) {
+    el.focusVolumeSlider.value = vol;
+  }
+  if (el.volumeSlider && parseInt(el.volumeSlider.value, 10) !== vol) {
+    el.volumeSlider.value = vol;
+  }
 }
 
 function updateVideoVisibilityUI() {
@@ -3268,16 +3281,34 @@ function setupEventListeners() {
     });
   }
 
+  if (el.focusVolumeSlider) {
+    el.focusVolumeSlider.addEventListener('input', (e) => {
+      const vol = parseInt(e.target.value, 10);
+      appState.settings.volume = vol;
+      if (ytPlayer && isPlayerReady) {
+        try {
+          ytPlayer.setVolume(vol);
+          if (ytPlayer.isMuted() && vol > 0) ytPlayer.unMute();
+        } catch (e) {}
+      }
+      updateVolumeIcon(vol);
+      saveState();
+    });
+  }
+
   const toggleMute = () => {
     if (!ytPlayer || !isPlayerReady) return;
     try {
       if (ytPlayer.isMuted()) {
         ytPlayer.unMute();
-        if (el.volumeSlider) el.volumeSlider.value = appState.settings.volume || 80;
-        updateVolumeIcon(appState.settings.volume || 80);
+        const restoreVol = appState.settings.volume || 80;
+        if (el.volumeSlider) el.volumeSlider.value = restoreVol;
+        if (el.focusVolumeSlider) el.focusVolumeSlider.value = restoreVol;
+        updateVolumeIcon(restoreVol);
       } else {
         ytPlayer.mute();
         if (el.volumeSlider) el.volumeSlider.value = 0;
+        if (el.focusVolumeSlider) el.focusVolumeSlider.value = 0;
         updateVolumeIcon(0);
       }
     } catch (e) {}
@@ -3285,6 +3316,7 @@ function setupEventListeners() {
 
   el.btnMute.addEventListener('click', toggleMute);
   if (el.btnMobileMute) el.btnMobileMute.addEventListener('click', toggleMute);
+  if (el.btnFocusMute) el.btnFocusMute.addEventListener('click', toggleMute);
 
   if (el.btnToggleVideo) {
     el.btnToggleVideo.addEventListener('click', () => {
