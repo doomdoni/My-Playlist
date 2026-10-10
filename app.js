@@ -2949,8 +2949,11 @@ async function pullStateFromCloud(showToast = false) {
   }
 }
 
-// 🛡️ [삭제 방지 핵심 로직] 동기화 해제 시 클라우드 플레이리스트가 유실되지 않도록 로컬 플레이리스트로 영구 보존
-// 🛑 isHost === true (방장 기기)인 경우: 이미 로컬 원본이 있으므로 보존/복제 플리를 절대 새로 생성하지 않음! (무한 복제 원천 차단)
+// 🛡️ [동기화 해제 시 데이터 정리]
+// 1. 이미 사용자가 '내 로컬에 영구 복사'했거나 이름/ID가 일치하는 로컬 플리가 있는 경우: 최신 트랙만 동기화하고 연동 해제
+// 2. 일치하는 로컬 플리가 없는 경우 (방장이 공유한 플리를 게스트가 로컬에 복사하지 않고 감상만 하던 경우):
+//    - 로컬에 절대 새 플레이리스트를 복제/추가(push)하지 않음! (방장 기기, 연결된 기기 모두 무한 복제 원천 차단)
+//    - 게스트 기기의 기존 원래 로컬 플레이리스트들은 100% 그대로 안전하게 보존됨
 function preserveCloudPlaylistsToLocal(isHost = false) {
   if (!appState.cloudPlaylists || appState.cloudPlaylists.length === 0) return false;
   if (!appState.playlists) appState.playlists = [];
@@ -2960,7 +2963,7 @@ function preserveCloudPlaylistsToLocal(isHost = false) {
   appState.cloudPlaylists.forEach(cloudPl => {
     const cleanPlName = cleanPlaylistName(cloudPl.name);
 
-    // 1. 이미 연결된 로컬 플리가 있거나 동일한 이름을 가진 로컬 플리가 있는지 확인
+    // 이미 연동된 로컬 플리가 있거나 동일한 이름을 가진 로컬 플리가 있는지 확인
     const linkedLocal = appState.playlists.find(lp => 
       (cloudPl.originLocalPlId && lp.id === cloudPl.originLocalPlId) ||
       (lp.originCloudPlId && lp.originCloudPlId === cloudPl.id) ||
@@ -2968,7 +2971,7 @@ function preserveCloudPlaylistsToLocal(isHost = false) {
     );
 
     if (linkedLocal) {
-      // 이미 로컬에 존재하는 플리라면: 최신 트랙만 동기화하고 연동 플래그 정리 (새 플리 절대 생성 안 함!)
+      // 이미 로컬에 연동해 둔 플리가 있다면 최신 트랙 반영 후 연동 해제 (새 플리 절대 생성 안 함)
       if (Array.isArray(cloudPl.tracks)) {
         linkedLocal.tracks = JSON.parse(JSON.stringify(cloudPl.tracks));
       }
@@ -2976,20 +2979,10 @@ function preserveCloudPlaylistsToLocal(isHost = false) {
       linkedLocal.originCloudPlId = null;
       linkedLocal.syncWithCloud = false;
       hasChanges = true;
-    } else {
-      // 2. 일치하는 로컬 플리가 전혀 없는 경우:
-      // 🛑 방장 기기(isHost === true)인 경우에는 중복/보존 플리를 절대 새로 생성하지 않음!
-      if (!isHost) {
-        // 참여 기기(게스트)인 경우에만 로컬에 없던 클라우드 플리를 새 로컬 플리로 안전하게 보존
-        appState.playlists.push({
-          id: 'pl-' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-          name: cleanPlName,
-          tracks: JSON.parse(JSON.stringify(cloudPl.tracks || [])),
-          createdAt: cloudPl.createdAt || Date.now()
-        });
-        hasChanges = true;
-      }
     }
+    // 🛑 일치하는 로컬 플리가 없는 경우:
+    // 사용자가 명시적으로 '내 로컬에 영구 복사'를 누른 적이 없는 클라우드 전용 플리이므로,
+    // 동기화 해제 시 로컬에 절대 추가(push)하지 않습니다! (복제 생성 방지)
   });
 
   // 모든 로컬 플리의 이름 정규화 및 syncWithCloud 플래그 해제
@@ -2999,7 +2992,7 @@ function preserveCloudPlaylistsToLocal(isHost = false) {
     lp.originCloudPlId = null;
   });
 
-  // 🧹 모든 기기에서 동일한 플리 복제 완전 방지 및 병합
+  // 🧹 모든 중복 플리 병합 및 중복 제거
   deduplicateLocalPlaylists();
 
   return hasChanges;
