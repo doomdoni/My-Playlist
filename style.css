@@ -2297,7 +2297,7 @@ body {
 .focus-progress-track {
   flex: 1;
   height: 4px;
-  background: rgba(255, 255, 255, 0.18);
+  background: transparent;
   border-radius: var(--radius-full);
   position: relative;
   cursor: pointer;
@@ -2317,7 +2317,7 @@ body {
 .focus-progress-track:hover,
 .focus-progress-track.is-dragging {
   height: 6px;
-  background: rgba(255, 255, 255, 0.3);
+  background: transparent;
 }
 
 .focus-progress-filled {
