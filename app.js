@@ -999,27 +999,27 @@ function updateFocusCardDistances() {
     if (diff === 0) {
       card.style.opacity = '1';
       card.style.filter = 'blur(0px)';
-      card.style.transform = 'scale(1.05)';
+      card.style.transform = 'scale(1.04)';
       card.style.pointerEvents = 'auto';
     } else if (diff === 1) {
-      card.style.opacity = '0.55';
-      card.style.filter = 'blur(0.8px)';
-      card.style.transform = 'scale(0.88)';
+      card.style.opacity = '0.75';
+      card.style.filter = 'blur(0.3px)';
+      card.style.transform = 'scale(0.92)';
       card.style.pointerEvents = 'auto';
     } else if (diff === 2) {
-      card.style.opacity = '0.28';
-      card.style.filter = 'blur(1.6px)';
-      card.style.transform = 'scale(0.78)';
+      card.style.opacity = '0.52';
+      card.style.filter = 'blur(0.8px)';
+      card.style.transform = 'scale(0.84)';
       card.style.pointerEvents = 'auto';
     } else if (diff === 3) {
-      card.style.opacity = '0.12';
-      card.style.filter = 'blur(2.6px)';
-      card.style.transform = 'scale(0.70)';
+      card.style.opacity = '0.38';
+      card.style.filter = 'blur(1.2px)';
+      card.style.transform = 'scale(0.78)';
       card.style.pointerEvents = 'auto';
     } else {
-      card.style.opacity = '0.04';
-      card.style.filter = 'blur(3.8px)';
-      card.style.transform = 'scale(0.64)';
+      card.style.opacity = '0.28';
+      card.style.filter = 'blur(1.5px)';
+      card.style.transform = 'scale(0.74)';
       card.style.pointerEvents = 'auto';
     }
   });
