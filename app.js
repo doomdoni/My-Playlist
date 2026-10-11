@@ -543,44 +543,10 @@ function updateWakeLockUI(active) {
   }
 }
 
-// 📱 모바일 브라우저(Brave, Safari, Chrome 등) 백그라운드 재생 세션 유지를 위한 Web Audio Context
-let bgAudioCtx = null;
-let bgOscillator = null;
-
-function ensureWebAudioKeepAlive() {
-  try {
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextClass) return;
-    if (!bgAudioCtx) {
-      bgAudioCtx = new AudioContextClass();
-    }
-    if (bgAudioCtx.state === 'suspended') {
-      bgAudioCtx.resume().catch(() => {});
-    }
-    if (!bgOscillator && bgAudioCtx) {
-      // 사람이 들을 수 없는 극초저역(1Hz) + 무음 게인으로 오디오 하드웨어 세션 점유 유지
-      const osc = bgAudioCtx.createOscillator();
-      const gain = bgAudioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(1, bgAudioCtx.currentTime);
-      gain.gain.setValueAtTime(0.0001, bgAudioCtx.currentTime);
-      osc.connect(gain);
-      gain.connect(bgAudioCtx.destination);
-      osc.start();
-      bgOscillator = osc;
-    }
-  } catch (e) {}
-}
-
 function startSilentAudioDriver() {
-  ensureWebAudioKeepAlive();
   if (el.silentAudioDriver) {
     try {
-      el.silentAudioDriver.volume = 0.01;
-      const playPromise = el.silentAudioDriver.play();
-      if (playPromise !== undefined) {
-        playPromise.catch(() => {});
-      }
+      el.silentAudioDriver.play().catch(() => {});
     } catch (e) {}
   }
 }
@@ -602,29 +568,17 @@ function updateMediaSession(track) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
       artist: plName,
-      album: 'YouTube Playlist Hub',
+      album: 'YouTube Playlist',
       artwork: [
-        { src: track.thumbnail, sizes: '512x512', type: 'image/jpeg' },
-        { src: track.thumbnail, sizes: '256x256', type: 'image/jpeg' },
-        { src: track.thumbnail, sizes: '128x128', type: 'image/jpeg' },
-        { src: track.thumbnail, sizes: '96x96', type: 'image/jpeg' }
+        { src: track.thumbnail, sizes: '512x512', type: 'image/jpeg' }
       ]
     });
 
-    // 브라우저에 현재 미디어가 정상 재생 중임을 명시적으로 통지
-    if (appState.isPlaying) {
-      navigator.mediaSession.playbackState = 'playing';
-    }
-
     navigator.mediaSession.setActionHandler('play', () => {
-      startSilentAudioDriver();
       if (ytPlayer && isPlayerReady) ytPlayer.playVideo();
-      navigator.mediaSession.playbackState = 'playing';
     });
     navigator.mediaSession.setActionHandler('pause', () => {
-      pauseSilentAudioDriver();
       if (ytPlayer && isPlayerReady) ytPlayer.pauseVideo();
-      navigator.mediaSession.playbackState = 'paused';
     });
     navigator.mediaSession.setActionHandler('previoustrack', () => {
       playPrevTrack();
@@ -649,18 +603,12 @@ function onPlayerStateChange(event) {
     preloadUpcomingTracks();
     requestScreenWakeLock();
     startSilentAudioDriver();
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = 'playing';
-    }
   } else if (event.data === YT.PlayerState.PAUSED) {
     appState.isPlaying = false;
     updatePlayPauseUI(false);
     stopProgressTimer();
     setVisualizerState(false);
     pauseSilentAudioDriver();
-    if ('mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = 'paused';
-    }
   } else if (event.data === YT.PlayerState.ENDED) {
     setVisualizerState(false);
     handleTrackEnded();
@@ -3555,14 +3503,9 @@ function setupEventListeners() {
     el.btnWakeLock.addEventListener('click', toggleWakeLock);
   }
 
-  // 화면 복귀 및 백그라운드 전환 시 자동 유지 & 동기화
+  // 화면 복귀 및 탭 전환 시 자동 복구 & 동기화
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      // 📱 백그라운드(화면 꺼짐, 다른 앱 전환)로 진입할 때: 무음 드라이버 및 오디오 세션 활성화 유지
-      if (appState.isPlaying) {
-        startSilentAudioDriver();
-      }
-    } else if (document.visibilityState === 'visible') {
+    if (document.visibilityState === 'visible') {
       if (activeSyncRoomId) {
         pullStateFromCloud(false);
       }
