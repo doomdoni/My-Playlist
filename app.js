@@ -480,6 +480,16 @@ window.onYouTubeIframeAPIReady = function() {
 
 function onPlayerReady(event) {
   isPlayerReady = true;
+
+  // 생성된 YouTube iframe에 필수 미디어 권한 부여 (백그라운드 & PIP 재생 지원)
+  try {
+    const iframe = document.getElementById('yt-player');
+    if (iframe && iframe.tagName === 'IFRAME') {
+      iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; media-src *;');
+      iframe.setAttribute('allowfullscreen', 'true');
+    }
+  } catch (e) {}
+
   ytPlayer.setVolume(appState.settings.volume);
   if (el.volumeSlider) el.volumeSlider.value = appState.settings.volume;
   if (el.focusVolumeSlider) el.focusVolumeSlider.value = appState.settings.volume;
