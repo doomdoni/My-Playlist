@@ -3196,46 +3196,66 @@ function checkProtocol() {
   }
 }
 
-// 📱 스마트폰 모바일 기기 및 데스크톱 모드 감지 로직 (태블릿x, PC x)
+// 📱 모바일 기기(핸드폰 & 태블릿/패드) 및 데스크톱 모드 감지 로직 (순수 PC 제외)
 function checkMobileDesktopMode() {
   const ua = navigator.userAgent || navigator.vendor || window.opera || '';
   const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
   
-  // 1. 태블릿 제외한 스마트폰 기기 판별 (iPhone, Android Phone, Mobile 등)
-  const isTablet = /iPad|Tablet|PlayBook/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const isPhoneUA = /Mobi|Android|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) && !isTablet;
-  
-  // 데스크톱 모드로 전환 시 UA에서 'Mobile'이 빠지는 Android Chrome 등의 경우:
-  // 터치 스크린이 지원되면서 화면 너비/높이 대비 해상도 및 플랫폼 체크
-  const isAndroidDesktopMode = isTouchDevice && !isTablet && (/Android/i.test(ua) && !/Mobile/i.test(ua));
-  const isMobilePlatform = isPhoneUA || isAndroidDesktopMode || (isTouchDevice && !isTablet && (screen.width <= 500 || screen.height <= 950));
+  // 1. 태블릿 / 패드 판별 (iPad, Android Tablet, Galaxy Tab 등)
+  const minDim = Math.min(window.screen.width, window.screen.height);
+  const maxDim = Math.max(window.screen.width, window.screen.height);
+  const isTablet = /iPad|Tablet|PlayBook|Silk/i.test(ua) || 
+                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+                  (/Android/i.test(ua) && !/Mobile/i.test(ua)) ||
+                  (isTouchDevice && minDim >= 600 && maxDim >= 960);
 
-  if (!isMobilePlatform) {
-    // 🖥️ PC 환경 및 태블릿: 모바일 배너 및 모바일 데스크톱 레이아웃 모두 미적용
+  // 2. 스마트폰 판별
+  const isPhoneUA = /Mobi|Android|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) && !isTablet;
+  const isSmartphone = !isTablet && (isPhoneUA || (isTouchDevice && minDim < 600));
+
+  // 3. 모바일 터치 기반 기기 전체(핸드폰 + 태블릿/패드) 여부 판정
+  const isAnyMobileDevice = isTablet || isSmartphone || (isTouchDevice && /Android|iPhone|iPad|Mobile/i.test(ua));
+
+  if (!isAnyMobileDevice) {
+    // 🖥️ 순수 PC 환경: 배너 및 모바일 클래스 모두 미적용
     document.body.classList.remove('is-mobile-device', 'is-desktop-mode');
     if (el.mobileDesktopBanner) el.mobileDesktopBanner.classList.add('hidden');
     return;
   }
 
-  // 2. 스마트폰 기기임이 확인된 경우
-  document.body.classList.add('is-mobile-device');
+  // 4. 모바일/패드 기기인 경우
+  // 데스크톱 사이트(모드)가 켜져 있는지 여부 판정:
+  // - 스마트폰: 일반 모드일 때 innerWidth <= 820px, 데스크톱 모드 시 980px~1280px 등으로 강제 확대됨
+  // - 태블릿(패드): 일반 모바일 모드 시 UA에 Mobile 또는 모바일 사파리/크롬 지표가 남아있거나,
+  //   iOS Safari의 경우 기본적으로 데스크톱 모드로 요청되거나 사용자가 데스크톱 사이트 요청을 켬
+  //   일반 모바일 모드로 접속 시 innerWidth <= 820px 이거나 일반 모바일 UA인 경우 감지
+  let isDesktopModeActive = false;
 
-  // 데스크톱 모드 여부 판정:
-  // 모바일 뷰포트(일반 모드)인 경우 window.innerWidth <= 820px,
-  // 모바일에서 '데스크톱 사이트(모드)'로 전환하면 뷰포트 너비가 980px~1280px 등으로 강제 확대됨
-  const isDesktopModeOnMobile = window.innerWidth > 820;
+  if (isSmartphone) {
+    isDesktopModeActive = window.innerWidth > 820;
+    document.body.classList.add('is-mobile-device');
+    if (isDesktopModeActive) {
+      document.body.classList.add('is-desktop-mode');
+    } else {
+      document.body.classList.remove('is-desktop-mode');
+    }
+  } else if (isTablet) {
+    // 태블릿(패드)은 너비 제한이나 검은 여백을 넣지 않음 (100% 꽉 찬 와이드 화면 유지)
+    document.body.classList.remove('is-mobile-device', 'is-desktop-mode');
 
-  if (isDesktopModeOnMobile) {
-    // 🌟 스마트폰에서 '데스크톱 모드'로 접속/전환한 상태:
-    // UI를 가운데 정렬하고 재생바를 살짝 올려서 세로로 긴 화면에 최적화!
-    document.body.classList.add('is-desktop-mode');
+    // 패드에서 데스크톱 모드가 켜져 있는지 확인:
+    // iPadOS의 데스크톱 모드는 'Macintosh' UA + maxTouchPoints > 1을 보내며 모바일 UA가 없음.
+    // Android 태블릿은 데스크톱 모드 시 데스크톱 Chrome UA를 보냄.
+    // 만약 여전히 'Mobile' 문자열이 UA에 있거나 뷰포트 너비가 좁다면 일반 모바일 모드로 간주
+    const hasMobileInUA = /Mobile/i.test(ua);
+    const isNarrowViewport = window.innerWidth <= 820;
+    isDesktopModeActive = !hasMobileInUA && !isNarrowViewport;
+  }
+
+  // 5. 데스크톱 모드가 켜져 있으면 안내 배너 숨김, 켜져 있지 않으면 백그라운드 재생 안내 배너 노출
+  if (isDesktopModeActive) {
     if (el.mobileDesktopBanner) el.mobileDesktopBanner.classList.add('hidden');
   } else {
-    // ⚠️ 스마트폰에서 '일반 모바일 모드'로 접속한 상태:
-    // 데스크톱 모드 클래스 제거 및 '데스크톱 모드로 변경해주세요' 권장 안내 배너 노출
-    document.body.classList.remove('is-desktop-mode');
-    
-    // 사용자가 이번 세션에 배너를 닫은 적이 없는지 확인
     const bannerDismissed = sessionStorage.getItem('dismiss_mobile_desktop_banner');
     if (el.mobileDesktopBanner && !bannerDismissed) {
       el.mobileDesktopBanner.classList.remove('hidden');

@@ -2957,43 +2957,34 @@ body {
   flex: 1;
 }
 
-/* ==================== 📱 모바일 기기에서 데스크톱 모드 전환 시 최적화 ==================== */
-/* PC에서는 적용되지 않고, 스마트폰 기기에서 데스크톱 모드로 전환했을 때만 감지되어 적용 */
+/* ==================== 📱 모바일 기기(스마트폰)에서 데스크톱 모드 전환 시 최적화 ==================== */
+/* PC 및 태블릿(패드)에서는 적용되지 않으며, 화면 비율이 좁은 스마트폰에서만 적용 */
 body.is-mobile-device.is-desktop-mode {
-  display: flex !important;
-  justify-content: center !important;
-  align-items: center !important;
-  background-color: #07080c !important;
-  overflow: hidden !important;
+  background-color: var(--bg-main) !important;
 }
 
 body.is-mobile-device.is-desktop-mode .app-container {
   width: 100% !important;
-  max-width: 1200px !important;
-  margin: 0 auto !important;
+  max-width: 100% !important;
+  margin: 0 !important;
   height: 100vh !important;
   height: 100dvh !important;
-  /* 하단 재생바 높이(약 120px)를 충분히 확보하여 본문과 겹치지 않게 배치 */
-  grid-template-rows: 1fr 116px !important;
+  grid-template-rows: 1fr 104px !important;
   position: relative !important;
 }
 
 body.is-mobile-device.is-desktop-mode .main-content {
-  padding: 16px 20px 24px 20px !important;
-  max-width: 1100px !important;
-  margin: 0 auto !important;
+  padding: 16px 20px 20px 20px !important;
+  max-width: 100% !important;
   width: 100% !important;
   box-sizing: border-box !important;
 }
 
-/* 🎵 모바일 데스크톱 모드에서 하단 재생바를 시각적·터치 편의를 위해 적절히 올려서 배치 */
+/* 🎵 스마트폰 데스크톱 모드에서 하단 재생바 하단 터치바/홈바 간섭 방지 */
 body.is-mobile-device.is-desktop-mode .bottom-player-bar {
-  padding: 12px 24px max(24px, env(safe-area-inset-bottom, 24px)) 24px !important;
-  border-radius: 18px 18px 0 0 !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
-  background: rgba(14, 16, 24, 0.96) !important;
-  backdrop-filter: blur(24px) !important;
-  -webkit-backdrop-filter: blur(24px) !important;
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.6) !important;
+  padding: 10px 20px max(18px, env(safe-area-inset-bottom, 18px)) 20px !important;
+  border-top: 1px solid var(--border-color) !important;
+  background: var(--bg-player) !important;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4) !important;
 }
 
