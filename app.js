@@ -451,12 +451,13 @@ function fallbackColorFromId(videoId) {
 
 /* ==================== YouTube IFrame Player ==================== */
 window.onYouTubeIframeAPIReady = function() {
-  const originUrl = window.location.origin && window.location.origin !== 'null' ? window.location.origin : undefined;
+  // file:// 프로토콜에서는 origin을 넘기면 YouTube postMessage 보안 정책으로 차단되므로 http/https일 때만 전달
+  const originUrl = window.location.protocol.startsWith('http') ? window.location.origin : undefined;
 
   ytPlayer = new YT.Player('yt-player', {
     height: '100%',
     width: '100%',
-    host: 'https://www.youtube.com', // 🎵 표준 유튜브 도메인 (브레이브/삼성인터넷 백그라운드 재생 규칙 및 확장 연동 필수)
+    host: 'https://www.youtube-nocookie.com', // 🛡️ 쿠키 및 맞춤형 광고 트래커 원천 차단 & 오프라인/로컬 재생 호환
     playerVars: {
       playsinline: 1,
       autoplay: 1,
@@ -465,7 +466,6 @@ window.onYouTubeIframeAPIReady = function() {
       enablejsapi: 1,
       modestbranding: 1,
       origin: originUrl,
-      widget_referrer: window.location.href,
       iv_load_policy: 3, // 영상 내 배너 주석 및 프로모션 카드 비활성화
       fs: 1,
       disablekb: 0
@@ -483,9 +483,9 @@ function onPlayerReady(event) {
 
   // 생성된 YouTube iframe에 필수 미디어 권한 부여 (백그라운드 & PIP 재생 지원)
   try {
-    const iframe = ytPlayer.getIframe ? ytPlayer.getIframe() : document.getElementById('yt-player');
-    if (iframe) {
-      iframe.setAttribute('allow', 'autoplay *; encrypted-media *; picture-in-picture *; fullscreen *');
+    const iframe = document.getElementById('yt-player');
+    if (iframe && iframe.tagName === 'IFRAME') {
+      iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture;');
       iframe.setAttribute('allowfullscreen', 'true');
     }
   } catch (e) {}
