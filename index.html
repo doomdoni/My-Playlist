@@ -37,6 +37,15 @@
     <button id="btn-close-warning" class="btn-icon" title="닫기"><i class="fa-solid fa-xmark"></i></button>
   </div>
 
+  <!-- 데스크톱 모드 안내 배너 (모바일 브라우저 일반 모드 접속 시 표시) -->
+  <div id="desktop-mode-banner" class="desktop-mode-banner hidden">
+    <div class="warning-content">
+      <i class="fa-solid fa-desktop warning-icon"></i>
+      <span>💻 <strong>화면 꺼짐 백그라운드 재생은 데스크톱에서만 작동합니다.</strong> 모바일에서 화면을 끄고 계속 들으시려면 브라우저 메뉴(⋮)에서 <strong>'데스크톱 사이트'</strong>를 켜주세요.</span>
+    </div>
+    <button id="btn-close-desktop-banner" class="btn-icon" title="닫기"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+
   <!-- 사이드바 배경 오버레이 (딤 처리) -->
   <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
@@ -189,6 +198,41 @@
             <div class="np-details">
               <h3 id="np-title">재생 중인 곡 없음</h3>
               <p id="np-subtitle">재생 대기 중</p>
+            </div>
+          </div>
+
+          <!-- 플레이리스트 요약 & 다음 곡 안내 카드 (영상 아래 여백 채움 및 편의 기능) -->
+          <div class="playlist-summary-card" id="playlist-summary-card">
+            <div class="summary-card-header">
+              <div class="summary-card-title">
+                <i class="fa-solid fa-forward-step"></i> 다음 재생 곡
+              </div>
+              <span id="summary-track-counter" class="summary-counter">0 / 0곡</span>
+            </div>
+            
+            <div class="next-track-preview" id="next-track-preview">
+              <div class="next-thumb-wrapper">
+                <img id="next-track-thumb" class="next-thumb hidden" alt="다음 곡" crossorigin="anonymous">
+                <div id="next-thumb-placeholder" class="thumb-placeholder-xs">
+                  <i class="fa-solid fa-music"></i>
+                </div>
+              </div>
+              <div class="next-track-info">
+                <div id="next-track-title" class="next-title">다음 곡이 없습니다</div>
+                <div id="next-track-artist" class="next-artist">플레이리스트 끝</div>
+              </div>
+            </div>
+
+            <div class="summary-quick-actions">
+              <button id="btn-quick-focus" class="btn-summary-action" title="감상 모드로 전환">
+                <i class="fa-solid fa-expand"></i> 감상 모드
+              </button>
+              <button id="btn-quick-shuffle" class="btn-summary-action" title="셔플 토글">
+                <i class="fa-solid fa-shuffle"></i> <span id="summary-shuffle-text">셔플</span>
+              </button>
+              <button id="btn-quick-repeat" class="btn-summary-action" title="반복재생 변경">
+                <i class="fa-solid fa-repeat"></i> <span id="summary-repeat-text">반복 안함</span>
+              </button>
             </div>
           </div>
         </section>
