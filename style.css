@@ -1593,23 +1593,50 @@ body {
     width: 100%;
   }
 
-  .content-body.mode-video .tracks-section {
-    display: none;
+  /* 📱 모바일에서도 데스크톱 모드처럼 영상과 트랙이 동시에 DOM 뷰포트에 100% 온전하게 살아있도록 구성
+     (데스크톱 모드에서 화면 꺼도 백그라운드 재생이 되는 원리: 영상 뷰어가 숨겨지지 않고 항상 렌더링 상태 유지) */
+  .content-body {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+    min-height: 0 !important;
+    flex: 1 1 auto !important;
   }
-  /* 모바일에서 트랙 목록 보기 모드일 때:
-     display: none을 사용하면 모바일 브라우저가 유튜브 iframe 렌더링 트리를 언마운트하여
-     오디오 재생이 중단되거나 백그라운드 전환 시 즉시 사망하므로,
-     화면 밖 1px 투명 오프스크린으로 활성 상태 유지! */
+
+  .player-view-section {
+    order: 1 !important;
+    width: 100% !important;
+    flex-shrink: 0 !important;
+    position: relative !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    clip: auto !important;
+    clip-path: none !important;
+    z-index: 1 !important;
+  }
+
+  .tracks-section {
+    order: 2 !important;
+    width: 100% !important;
+    flex: 1 1 auto !important;
+    min-height: 200px !important;
+    display: flex !important;
+  }
+
+  /* 기존 모드 전환 시 어느 한쪽을 숨기던 룰 완전 무력화 (항상 양쪽 모두 활성) */
+  .content-body.mode-video .tracks-section {
+    display: flex !important;
+  }
   .content-body.mode-tracks .player-view-section {
-    position: absolute !important;
-    width: 1px !important;
-    height: 1px !important;
-    opacity: 0.01 !important;
-    pointer-events: none !important;
-    overflow: hidden !important;
-    clip: rect(0, 0, 0, 0) !important;
-    clip-path: inset(50%) !important;
-    z-index: -10 !important;
+    position: relative !important;
+    width: 100% !important;
+    height: auto !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    overflow: visible !important;
+    clip: auto !important;
+    clip-path: none !important;
+    z-index: 1 !important;
   }
 
   .tracks-section {

@@ -2188,16 +2188,16 @@ function closeSidebar() {
 
 let mobileViewMode = 'all';
 function toggleMobileView() {
-  if (mobileViewMode === 'all' || mobileViewMode === 'tracks') {
-    mobileViewMode = 'video';
-    el.contentBody.classList.remove('mode-tracks');
-    el.contentBody.classList.add('mode-video');
-    el.iconMobileView.className = 'fa-solid fa-list';
+  // 모바일에서도 데스크톱처럼 영상을 DOM에서 숨기지 않고 영상 크기 최소화/확대 형태로 토글
+  const isVideoMinimized = el.videoWrapper && el.videoWrapper.classList.contains('minimized');
+  if (isVideoMinimized) {
+    if (el.videoWrapper) el.videoWrapper.classList.remove('minimized');
+    if (el.iconMobileView) el.iconMobileView.className = 'fa-solid fa-tv';
+    showStatusMsg('📺 영상 화면을 표시합니다.', 'info', 2000);
   } else {
-    mobileViewMode = 'tracks';
-    el.contentBody.classList.remove('mode-video');
-    el.contentBody.classList.add('mode-tracks');
-    el.iconMobileView.className = 'fa-solid fa-tv';
+    if (el.videoWrapper) el.videoWrapper.classList.add('minimized');
+    if (el.iconMobileView) el.iconMobileView.className = 'fa-solid fa-list';
+    showStatusMsg('📋 트랙 목록 집중 모드 (영상 최소화)', 'info', 2000);
   }
 }
 
