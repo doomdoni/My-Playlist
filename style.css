@@ -85,97 +85,6 @@ body {
   flex-shrink: 0;
 }
 
-/* 📱 모바일 데스크톱 모드 권장 안내 배너 */
-.mobile-desktop-mode-banner {
-  background: linear-gradient(135deg, rgba(30, 27, 75, 0.96), rgba(49, 46, 129, 0.96));
-  border-bottom: 1px solid rgba(129, 140, 248, 0.35);
-  color: #fff;
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  z-index: 1000;
-  position: relative;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  animation: banner-slide-down 0.3s ease-out;
-}
-
-@keyframes banner-slide-down {
-  from {
-    opacity: 0;
-    transform: translateY(-100%);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.banner-content {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  flex: 1;
-}
-
-.banner-icon-box {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #6366f1, #a855f7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1rem;
-  color: #fff;
-  flex-shrink: 0;
-  box-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
-}
-
-.banner-text-box {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.banner-title {
-  font-size: 0.88rem;
-  font-weight: 700;
-  color: #c7d2fe;
-}
-
-.banner-desc {
-  font-size: 0.78rem;
-  line-height: 1.35;
-  color: #e0e7ff;
-  margin: 0;
-}
-
-.banner-close-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
-  color: #c7d2fe;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: all var(--transition-fast);
-}
-
-.banner-close-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
-}
-
 /* 유틸리티 */
 .mobile-only {
   display: none !important;
@@ -1012,18 +921,21 @@ body {
   transition: all 0.3s ease;
 }
 
-/* 영상 숨기기 모드: 유튜브 오디오는 멈추지 않고 화면만 축소/숨김 */
+/* 영상 숨기기 모드: 유튜브 오디오는 멈추지 않고 화면만 축소/숨김 (크기를 0으로 만들면 모바일 브라우저가 비가시성으로 판단하여 일시정지하므로 1px 유지) */
 .video-container.minimized {
-  height: 0 !important;
-  min-height: 0 !important;
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-height: 1px !important;
   aspect-ratio: unset !important;
-  opacity: 0 !important;
+  opacity: 0.01 !important;
   pointer-events: none !important;
   margin: 0 !important;
   padding: 0 !important;
   border: none !important;
   overflow: hidden !important;
   box-shadow: none !important;
+  clip: rect(0, 0, 0, 0) !important;
 }
 
 .content-body.video-minimized {
@@ -2955,36 +2867,5 @@ body {
 
 .sync-select-actions button {
   flex: 1;
-}
-
-/* ==================== 📱 모바일 기기(스마트폰)에서 데스크톱 모드 전환 시 최적화 ==================== */
-/* PC 및 태블릿(패드)에서는 적용되지 않으며, 화면 비율이 좁은 스마트폰에서만 적용 */
-body.is-mobile-device.is-desktop-mode {
-  background-color: var(--bg-main) !important;
-}
-
-body.is-mobile-device.is-desktop-mode .app-container {
-  width: 100% !important;
-  max-width: 100% !important;
-  margin: 0 !important;
-  height: 100vh !important;
-  height: 100dvh !important;
-  grid-template-rows: 1fr 104px !important;
-  position: relative !important;
-}
-
-body.is-mobile-device.is-desktop-mode .main-content {
-  padding: 16px 20px 20px 20px !important;
-  max-width: 100% !important;
-  width: 100% !important;
-  box-sizing: border-box !important;
-}
-
-/* 🎵 스마트폰 데스크톱 모드에서 하단 재생바 하단 터치바/홈바 간섭 방지 */
-body.is-mobile-device.is-desktop-mode .bottom-player-bar {
-  padding: 10px 20px max(18px, env(safe-area-inset-bottom, 18px)) 20px !important;
-  border-top: 1px solid var(--border-color) !important;
-  background: var(--bg-player) !important;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4) !important;
 }
 

@@ -41,8 +41,6 @@ let draggedTrackIndex = null;
 const el = {
   protocolWarning: document.getElementById('protocol-warning'),
   btnCloseWarning: document.getElementById('btn-close-warning'),
-  mobileDesktopBanner: document.getElementById('mobile-desktop-mode-banner'),
-  btnCloseDesktopBanner: document.getElementById('btn-close-desktop-banner'),
   
   sidebar: document.getElementById('sidebar'),
   sidebarOverlay: document.getElementById('sidebar-overlay'),
@@ -545,10 +543,44 @@ function updateWakeLockUI(active) {
   }
 }
 
+// 📱 모바일 브라우저(Brave, Safari, Chrome 등) 백그라운드 재생 세션 유지를 위한 Web Audio Context
+let bgAudioCtx = null;
+let bgOscillator = null;
+
+function ensureWebAudioKeepAlive() {
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    if (!bgAudioCtx) {
+      bgAudioCtx = new AudioContextClass();
+    }
+    if (bgAudioCtx.state === 'suspended') {
+      bgAudioCtx.resume().catch(() => {});
+    }
+    if (!bgOscillator && bgAudioCtx) {
+      // 사람이 들을 수 없는 극초저역(1Hz) + 무음 게인으로 오디오 하드웨어 세션 점유 유지
+      const osc = bgAudioCtx.createOscillator();
+      const gain = bgAudioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1, bgAudioCtx.currentTime);
+      gain.gain.setValueAtTime(0.0001, bgAudioCtx.currentTime);
+      osc.connect(gain);
+      gain.connect(bgAudioCtx.destination);
+      osc.start();
+      bgOscillator = osc;
+    }
+  } catch (e) {}
+}
+
 function startSilentAudioDriver() {
+  ensureWebAudioKeepAlive();
   if (el.silentAudioDriver) {
     try {
-      el.silentAudioDriver.play().catch(() => {});
+      el.silentAudioDriver.volume = 0.01;
+      const playPromise = el.silentAudioDriver.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {});
+      }
     } catch (e) {}
   }
 }
@@ -570,17 +602,29 @@ function updateMediaSession(track) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
       artist: plName,
-      album: 'YouTube Playlist',
+      album: 'YouTube Playlist Hub',
       artwork: [
-        { src: track.thumbnail, sizes: '512x512', type: 'image/jpeg' }
+        { src: track.thumbnail, sizes: '512x512', type: 'image/jpeg' },
+        { src: track.thumbnail, sizes: '256x256', type: 'image/jpeg' },
+        { src: track.thumbnail, sizes: '128x128', type: 'image/jpeg' },
+        { src: track.thumbnail, sizes: '96x96', type: 'image/jpeg' }
       ]
     });
 
+    // 브라우저에 현재 미디어가 정상 재생 중임을 명시적으로 통지
+    if (appState.isPlaying) {
+      navigator.mediaSession.playbackState = 'playing';
+    }
+
     navigator.mediaSession.setActionHandler('play', () => {
+      startSilentAudioDriver();
       if (ytPlayer && isPlayerReady) ytPlayer.playVideo();
+      navigator.mediaSession.playbackState = 'playing';
     });
     navigator.mediaSession.setActionHandler('pause', () => {
+      pauseSilentAudioDriver();
       if (ytPlayer && isPlayerReady) ytPlayer.pauseVideo();
+      navigator.mediaSession.playbackState = 'paused';
     });
     navigator.mediaSession.setActionHandler('previoustrack', () => {
       playPrevTrack();
@@ -605,12 +649,18 @@ function onPlayerStateChange(event) {
     preloadUpcomingTracks();
     requestScreenWakeLock();
     startSilentAudioDriver();
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'playing';
+    }
   } else if (event.data === YT.PlayerState.PAUSED) {
     appState.isPlaying = false;
     updatePlayPauseUI(false);
     stopProgressTimer();
     setVisualizerState(false);
     pauseSilentAudioDriver();
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = 'paused';
+    }
   } else if (event.data === YT.PlayerState.ENDED) {
     setVisualizerState(false);
     handleTrackEnded();
@@ -3189,84 +3239,10 @@ function initCloudSync() {
   }
 }
 
-/* ==================== 프로토콜 및 모바일 데스크톱 모드 감지 ==================== */
+/* ==================== 프로토콜 검사 ==================== */
 function checkProtocol() {
   if (window.location.protocol === 'file:') {
     el.protocolWarning.classList.remove('hidden');
-  }
-}
-
-// 📱 모바일 기기(핸드폰 & 태블릿/패드) 및 데스크톱 모드 감지 로직 (순수 PC 데스크톱 제외)
-function checkMobileDesktopMode() {
-  const ua = navigator.userAgent || navigator.vendor || window.opera || '';
-  const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-  const platform = navigator.platform || '';
-
-  // 1. 순수 PC(Windows, Mac 데스크톱, Linux 데스크톱)와 모바일 터치 기기(폰, 탭) 구분
-  // - iPadOS는 데스크톱 모드 시 platform이 'MacIntel'이고 maxTouchPoints > 1을 반환함
-  const isIPad = /iPad/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const isAndroid = /Android/i.test(ua);
-  const isIPhone = /iPhone|iPod/i.test(ua);
-  const isMobileOS = isAndroid || isIPhone || isIPad || /Tablet|PlayBook|Silk/i.test(ua);
-
-  // 일반 PC는 터치 포인트가 0이거나 모바일 OS가 아님
-  if (!isMobileOS && !(isTouch && /Mobi/i.test(ua))) {
-    // 🖥️ 순수 PC 컴퓨터: 데스크톱 모드 안내 배너 및 모바일 스타일 일체 미적용
-    document.body.classList.remove('is-mobile-device', 'is-desktop-mode');
-    if (el.mobileDesktopBanner) el.mobileDesktopBanner.classList.add('hidden');
-    return;
-  }
-
-  // 2. 모바일/태블릿 기기에서 "데스크톱 사이트(모드)"가 실제로 켜져 있는지 판별
-  let isDesktopModeActive = false;
-
-  // 1순위: 최신 Chromium(크롬, 삼성 인터넷 등)의 공식 navigator.userAgentData API 활용
-  // 데스크톱 사이트를 켜면 모바일 폰이든 갤럭시 탭이든 navigator.userAgentData.mobile === false 가 됨!
-  // 일반 모바일 모드일 때는 가로든 세로든 navigator.userAgentData.mobile === true 임!
-  if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean') {
-    isDesktopModeActive = !navigator.userAgentData.mobile;
-  } else if (isAndroid) {
-    // 2순위: User-Agent 문자열 검사 (안드로이드)
-    // 안드로이드 브라우저는 데스크톱 사이트를 체크하면 UA에서 'Android'가 빠지고 Windows/X11 데스크톱 UA를 보냄.
-    // UA에 'Android'가 남아있다는 것은 가로든 세로든 '일반 모바일 모드' 상태라는 명백한 증거!
-    isDesktopModeActive = !/Android/i.test(ua);
-  } else if (isIPad) {
-    // 3순위: iPadOS
-    // iPad Safari는 기본적으로 데스크톱(MacIntel)으로 전송되나, 사용자가 '모바일 웹사이트 요청'을 한 경우
-    // UA에 'Mobile' 또는 'iPhone' 등이 포함됨
-    const hasMobileInUA = /Mobile|iPhone/i.test(ua);
-    isDesktopModeActive = !hasMobileInUA;
-  } else if (isIPhone) {
-    // 4순위: iPhone
-    // 아이폰 Safari/Chrome에서 데스크톱 요청 시 뷰포트가 980px 이상 데스크톱 스케일로 전환됨
-    isDesktopModeActive = window.innerWidth > 820 || !/iPhone/i.test(ua);
-  } else {
-    isDesktopModeActive = !/Mobi/i.test(ua);
-  }
-
-  // 스마트폰 전용 세로 비율 보정 (아이폰 및 안드로이드 스마트폰)
-  const isPhone = isIPhone || (/Android/i.test(ua) && /Mobile/i.test(ua));
-  if (isPhone) {
-    document.body.classList.add('is-mobile-device');
-    if (isDesktopModeActive) {
-      document.body.classList.add('is-desktop-mode');
-    } else {
-      document.body.classList.remove('is-desktop-mode');
-    }
-  } else {
-    // 태블릿/패드는 100% 꽉 찬 와이드 화면 유지
-    document.body.classList.remove('is-mobile-device', 'is-desktop-mode');
-  }
-
-  // 3. 안내 배너 제어:
-  // 데스크톱 모드가 켜져 있으면 배너 숨김!
-  // 데스크톱 모드를 켜지 않았다면 탭(태블릿)이 가로든 세로든 무조건 배너 표시!
-  if (isDesktopModeActive) {
-    if (el.mobileDesktopBanner) el.mobileDesktopBanner.classList.add('hidden');
-  } else {
-    if (el.mobileDesktopBanner) {
-      el.mobileDesktopBanner.classList.remove('hidden');
-    }
   }
 }
 
@@ -3275,13 +3251,6 @@ function setupEventListeners() {
   if (el.btnCloseWarning) {
     el.btnCloseWarning.addEventListener('click', () => {
       el.protocolWarning.classList.add('hidden');
-    });
-  }
-
-  if (el.btnCloseDesktopBanner) {
-    el.btnCloseDesktopBanner.addEventListener('click', () => {
-      if (el.mobileDesktopBanner) el.mobileDesktopBanner.classList.add('hidden');
-      sessionStorage.setItem('dismiss_mobile_desktop_banner', 'true');
     });
   }
 
@@ -3586,9 +3555,14 @@ function setupEventListeners() {
     el.btnWakeLock.addEventListener('click', toggleWakeLock);
   }
 
-  // 화면 복귀 및 탭 전환 시 자동 복구 & 동기화
+  // 화면 복귀 및 백그라운드 전환 시 자동 유지 & 동기화
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
+    if (document.visibilityState === 'hidden') {
+      // 📱 백그라운드(화면 꺼짐, 다른 앱 전환)로 진입할 때: 무음 드라이버 및 오디오 세션 활성화 유지
+      if (appState.isPlaying) {
+        startSilentAudioDriver();
+      }
+    } else if (document.visibilityState === 'visible') {
       if (activeSyncRoomId) {
         pullStateFromCloud(false);
       }
@@ -3712,7 +3686,6 @@ function setupMobileGestures() {
 /* ==================== 초기화 ==================== */
 function init() {
   checkProtocol();
-  checkMobileDesktopMode();
   loadState();
   initTopSoundWaveform();
   setupEventListeners();
@@ -3723,10 +3696,6 @@ function init() {
   updateNowPlayingInfo(null);
   updateVideoVisibilityUI();
   initCloudSync();
-
-  // 화면 회전 또는 데스크톱 모드 전환 시 실시간 재감지
-  window.addEventListener('resize', checkMobileDesktopMode);
-  window.addEventListener('orientationchange', checkMobileDesktopMode);
 }
 
 document.addEventListener('DOMContentLoaded', init);

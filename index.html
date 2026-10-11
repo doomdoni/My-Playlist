@@ -37,22 +37,6 @@
     <button id="btn-close-warning" class="btn-icon" title="닫기"><i class="fa-solid fa-xmark"></i></button>
   </div>
 
-  <!-- 📱 모바일 기기(핸드폰/태블릿) 일반 모드 접속 시 데스크톱 모드 전환 권장 배너 -->
-  <div id="mobile-desktop-mode-banner" class="mobile-desktop-mode-banner hidden">
-    <div class="banner-content">
-      <div class="banner-icon-box">
-        <i class="fa-solid fa-desktop"></i>
-      </div>
-      <div class="banner-text-box">
-        <strong class="banner-title">데스크톱 모드 전환 안내</strong>
-        <p class="banner-desc">백그라운드 재생 및 원활한 연속 재생을 위해 브라우저 메뉴에서 <strong>'데스크톱 사이트(모드)'</strong>로 변경해주세요.</p>
-      </div>
-    </div>
-    <button id="btn-close-desktop-banner" class="btn-icon banner-close-btn" title="닫기">
-      <i class="fa-solid fa-xmark"></i>
-    </button>
-  </div>
-
   <!-- 사이드바 배경 오버레이 (딤 처리) -->
   <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
@@ -501,8 +485,8 @@
     </div>
   </div>
 
-  <!-- 백그라운드 오디오 유지용 무음 트랙 -->
-  <audio id="silent-audio-driver" loop preload="auto" src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA" style="display:none;"></audio>
+  <!-- 백그라운드 오디오 유지용 무음 트랙 (모바일 브라우저 백그라운드 재생 세션 잠금 유지) -->
+  <audio id="silent-audio-driver" loop preload="auto" playsinline webkit-playsinline src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA" style="position:fixed; width:1px; height:1px; opacity:0.001; pointer-events:none;"></audio>
 
   <!-- 영상 색상 분석용 히든 캔버스 -->
   <canvas id="color-canvas" style="display:none;" width="10" height="10"></canvas>
