@@ -3202,55 +3202,49 @@ function checkMobileDesktopMode() {
   const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
   const platform = navigator.platform || '';
 
-  // 1. 순수 데스크톱 PC(Windows, Mac, Linux)인지 판별
-  // - 일반 PC는 터치가 없거나, 터치 지원 노트북이라도 UA/Platform이 Windows/Mac/Linux이고 모바일 식별자(Android, iPhone, iPad)가 전혀 없음
-  // - 단, iPadOS의 경우 데스크톱 모드 시 platform이 'MacIntel'이고 maxTouchPoints > 1 임!
+  // 1. 순수 PC(Windows, Mac 데스크톱, Linux 데스크톱)와 모바일 터치 기기(폰, 탭) 구분
+  // - iPadOS는 데스크톱 모드 시 platform이 'MacIntel'이고 maxTouchPoints > 1을 반환함
   const isIPad = /iPad/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const isAndroid = /Android/i.test(ua);
   const isIPhone = /iPhone|iPod/i.test(ua);
-  const isMobileOS = isAndroid || isIPhone || isIPad || /Tablet|Mobi/i.test(ua);
+  const isMobileOS = isAndroid || isIPhone || isIPad || /Tablet|PlayBook|Silk/i.test(ua);
 
-  if (!isMobileOS) {
-    // 🖥️ 순수 PC 컴퓨터: 데스크톱 모드 배너 및 모바일 제어 일체 미적용
+  // 일반 PC는 터치 포인트가 0이거나 모바일 OS가 아님
+  if (!isMobileOS && !(isTouch && /Mobi/i.test(ua))) {
+    // 🖥️ 순수 PC 컴퓨터: 데스크톱 모드 안내 배너 및 모바일 스타일 일체 미적용
     document.body.classList.remove('is-mobile-device', 'is-desktop-mode');
     if (el.mobileDesktopBanner) el.mobileDesktopBanner.classList.add('hidden');
     return;
   }
 
-  // 2. 모바일 기기(스마트폰 또는 탭/패드) 환경
-  // ★ 너비(width)나 가로/세로 방향을 기준으로 판단하지 않고,
-  // 브라우저의 "데스크톱 사이트(모드)"가 실제로 켜져 있는지만 정밀 판정!
+  // 2. 모바일/태블릿 기기에서 "데스크톱 사이트(모드)"가 실제로 켜져 있는지 판별
   let isDesktopModeActive = false;
 
-  if (isAndroid) {
-    // 📱 안드로이드 폰 & 갤럭시 탭 등 모든 안드로이드 기기:
-    // Chrome, 삼성 인터넷 등 안드로이드 브라우저는 [데스크톱 사이트]를 켜면
-    // User-Agent 헤더 및 navigator.userAgent에서 'Android' 문자열이 완전히 삭제되거나
-    // Windows/X11 데스크톱 UA로 교체되어 전달됩니다.
-    // 반대로 UA에 'Android'가 포함되어 있다면 가로든 세로든 [일반 모바일 모드] 상태입니다!
-    // 추가로 navigator.userAgentData가 지원되는 경우 mobile 플래그로 2중 검증!
-    if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean') {
-      isDesktopModeActive = !navigator.userAgentData.mobile;
-    } else {
-      isDesktopModeActive = !/Android/i.test(ua);
-    }
+  // 1순위: 최신 Chromium(크롬, 삼성 인터넷 등)의 공식 navigator.userAgentData API 활용
+  // 데스크톱 사이트를 켜면 모바일 폰이든 갤럭시 탭이든 navigator.userAgentData.mobile === false 가 됨!
+  // 일반 모바일 모드일 때는 가로든 세로든 navigator.userAgentData.mobile === true 임!
+  if (navigator.userAgentData && typeof navigator.userAgentData.mobile === 'boolean') {
+    isDesktopModeActive = !navigator.userAgentData.mobile;
+  } else if (isAndroid) {
+    // 2순위: User-Agent 문자열 검사 (안드로이드)
+    // 안드로이드 브라우저는 데스크톱 사이트를 체크하면 UA에서 'Android'가 빠지고 Windows/X11 데스크톱 UA를 보냄.
+    // UA에 'Android'가 남아있다는 것은 가로든 세로든 '일반 모바일 모드' 상태라는 명백한 증거!
+    isDesktopModeActive = !/Android/i.test(ua);
   } else if (isIPad) {
-    // 🍎 아이패드(iPadOS):
-    // iPadOS Safari는 브라우저 메뉴의 '데스크톱 웹사이트 요청' 상태에 따라
-    // 데스크톱 모드일 때는 Mac 데스크톱(MacIntel, maxTouchPoints > 1, no 'Mobile' in UA)으로 전송되고,
-    // 모바일 모드로 전환했을 때는 UA에 'Mobile' 또는 'iPhone' 등이 포함되거나 화면 스케일이 모바일 뷰로 변환됨.
+    // 3순위: iPadOS
+    // iPad Safari는 기본적으로 데스크톱(MacIntel)으로 전송되나, 사용자가 '모바일 웹사이트 요청'을 한 경우
+    // UA에 'Mobile' 또는 'iPhone' 등이 포함됨
     const hasMobileInUA = /Mobile|iPhone/i.test(ua);
     isDesktopModeActive = !hasMobileInUA;
   } else if (isIPhone) {
-    // 📱 아이폰(iOS iPhone):
-    // 아이폰 Safari/Chrome에서 '데스크톱 웹사이트 요청'을 켜면 뷰포트가 980px 표준 데스크톱 뷰포트로 강제 고정됨
+    // 4순위: iPhone
+    // 아이폰 Safari/Chrome에서 데스크톱 요청 시 뷰포트가 980px 이상 데스크톱 스케일로 전환됨
     isDesktopModeActive = window.innerWidth > 820 || !/iPhone/i.test(ua);
   } else {
-    // 기타 모바일 기기
     isDesktopModeActive = !/Mobi/i.test(ua);
   }
 
-  // 스마트폰에만 필요한 특수 스타일(세로비율) 적용 여부
+  // 스마트폰 전용 세로 비율 보정 (아이폰 및 안드로이드 스마트폰)
   const isPhone = isIPhone || (/Android/i.test(ua) && /Mobile/i.test(ua));
   if (isPhone) {
     document.body.classList.add('is-mobile-device');
@@ -3260,16 +3254,17 @@ function checkMobileDesktopMode() {
       document.body.classList.remove('is-desktop-mode');
     }
   } else {
-    // 태블릿/패드는 100% 꽉 찬 풀 와이드 화면 유지
+    // 태블릿/패드는 100% 꽉 찬 와이드 화면 유지
     document.body.classList.remove('is-mobile-device', 'is-desktop-mode');
   }
 
-  // 3. 데스크톱 모드가 켜져 있으면 배너 숨김, 켜져 있지 않으면 가로/세로 회전과 관계없이 항상 배너 노출
+  // 3. 안내 배너 제어:
+  // 데스크톱 모드가 켜져 있으면 배너 숨김!
+  // 데스크톱 모드를 켜지 않았다면 탭(태블릿)이 가로든 세로든 무조건 배너 표시!
   if (isDesktopModeActive) {
     if (el.mobileDesktopBanner) el.mobileDesktopBanner.classList.add('hidden');
   } else {
-    const bannerDismissed = sessionStorage.getItem('dismiss_mobile_desktop_banner');
-    if (el.mobileDesktopBanner && !bannerDismissed) {
+    if (el.mobileDesktopBanner) {
       el.mobileDesktopBanner.classList.remove('hidden');
     }
   }
