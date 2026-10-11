@@ -3203,19 +3203,19 @@ function checkMobileDesktopMode() {
   
   // 1. 태블릿 / 패드 여부 판정 (Galaxy Tab, iPad 등)
   const isIPad = /iPad/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const isAndroidTablet = /Android/i.test(ua) && !/Mobile/i.test(ua);
   const minDim = Math.min(window.screen.width, window.screen.height);
   const maxDim = Math.max(window.screen.width, window.screen.height);
-  const isLargeTouchTablet = isTouchDevice && minDim >= 600 && maxDim >= 900;
-  const isTablet = isIPad || isAndroidTablet || isLargeTouchTablet || /Tablet|PlayBook|Silk/i.test(ua);
+  // 태블릿은 짧은 쪽이 600px 이상이거나, iPad/Tablet 식별자가 있는 경우
+  const isTablet = isIPad || /Tablet|PlayBook|Silk/i.test(ua) || 
+                  (/Android/i.test(ua) && !/Mobile/i.test(ua)) ||
+                  (isTouchDevice && minDim >= 600);
 
   // 2. 스마트폰 여부 판정 (iPhone, Android Phone 등)
   const isPhoneUA = /Mobi|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || (/Android/i.test(ua) && /Mobile/i.test(ua));
   const isSmartphone = !isTablet && (isPhoneUA || (isTouchDevice && minDim < 600));
 
   // 3. 모바일 터치 기기(스마트폰 + 탭/패드) 전체 판별
-  // PC 데스크톱(Windows/Mac/Linux 일반 브라우저)은 maxTouchPoints === 0 이거나 터치가 없음
-  // 터치 노트북의 경우에도 UA에 Android, iPhone, iPad, Mobile 등이 전혀 없음
+  // 순수 PC(Windows, Mac 데스크톱/노트북)는 모바일 OS(Android, iOS)가 아님
   const isAnyMobileOrTablet = isTablet || isSmartphone || (isTouchDevice && /Android|iPhone|iPad|Mobile/i.test(ua));
 
   if (!isAnyMobileOrTablet) {
@@ -3226,16 +3226,12 @@ function checkMobileDesktopMode() {
   }
 
   // 4. 데스크톱 모드(Desktop Site) 활성화 여부 판별
-  // - 스마트폰: 일반 모드(innerWidth <= 820) -> 데스크톱 모드로 켜면 뷰포트가 980px 이상으로 확장됨
-  // - 태블릿(갤럭시 탭, 아이패드 등):
-  //   * 갤럭시 탭(안드로이드): 일반 모바일 모드 시 UA에 'Android'와 'Version/4.0 Chrome/...' 등이 포함되며,
-  //     사용자가 크롬 메뉴에서 [데스크톱 사이트]를 체크하면 UA가 Windows나 X11 등의 데스크톱 UA로 바뀌거나
-  //     'Android' 문자열이 완전히 제거된 데스크톱 Chrome UA를 전송함.
-  //   * 따라서 안드로이드 탭에서 일반 모드일 때는 UA에 'Android'가 남아있고, 데스크톱 모드 시 'Android'가 사라짐.
-  //   * 또한 일반 모드일 때 스크린 DPI/스케일 비율을 고려하여 체크.
+  // ★ 중요: 탭을 가로로 돌리든 세로로 돌리든 방향에 영향받지 않도록 화면 크기(innerWidth)로 판단하지 않고
+  // 실제 브라우저의 데스크톱 모드 전환 지표를 기준으로 판정!
   let isDesktopModeActive = false;
 
   if (isSmartphone) {
+    // 스마트폰: 일반 모드 시 innerWidth <= 820px, 데스크톱 모드 켜면 980px 이상으로 강제 확대됨
     isDesktopModeActive = window.innerWidth > 820;
     document.body.classList.add('is-mobile-device');
     if (isDesktopModeActive) {
@@ -3243,27 +3239,30 @@ function checkMobileDesktopMode() {
     } else {
       document.body.classList.remove('is-desktop-mode');
     }
-  } else if (isTablet) {
-    // 패드/태블릿은 전체 와이드 화면(100%)을 유지하므로 세로 비율 축소 클래스는 붙이지 않음
+  } else {
+    // 🌟 태블릿 / 탭 (갤럭시 탭, 아이패드 등):
+    // 패드는 화면이 넓으므로 100% 꽉 찬 와이드 화면 유지
     document.body.classList.remove('is-mobile-device', 'is-desktop-mode');
 
     if (/Android/i.test(ua)) {
-      // 🌟 갤럭시 탭 등 안드로이드 태블릿:
-      // 브라우저에서 '데스크톱 사이트'를 체크하면 UA에서 'Android'가 빠지거나 Windows/Linux 데스크톱 UA로 변경됨.
-      // UA에 'Android'가 남아있다는 것은 현재 '일반 모바일 모드' 상태라는 뜻!
-      isDesktopModeActive = false;
+      // 📱 안드로이드 탭(갤럭시 탭 등):
+      // 크롬/삼성인터넷 등에서 '데스크톱 사이트'를 체크하면 User Agent에서 'Android'가 완전히 제거되거나
+      // Windows / X11 데스크톱 UA로 교체되어 전송됨.
+      // 반대로 UA에 'Android'가 남아있다면, 가로/세로 회전과 상관없이 아직 '일반 모바일 모드' 상태임!
+      isDesktopModeActive = !/Android/i.test(ua);
     } else if (isIPad) {
-      // 🌟 아이패드(iPadOS Safari):
-      // iPadOS 13 이상 Safari는 기본적으로 데스크톱 UA(MacIntel)를 보내지만,
-      // 브라우저 설정이나 Chrome 등에서 데스크톱 요청 여부에 따라 제어됨
-      // 화면 너비가 데스크톱 표준 뷰포트(1024 이상)인 경우 데스크톱 모드로 간주
-      isDesktopModeActive = window.innerWidth >= 1024;
+      // 🍎 아이패드(iPadOS):
+      // iPadOS Safari는 기본적으로 데스크톱 모드(MacIntel)로 작동하나,
+      // '모바일 웹사이트 요청'을 켠 상태이거나 축소 뷰포트인 경우 모바일로 인식
+      // 모바일 사파리 식별자(Mobile)가 있거나 화면 너비가 스케일링된 경우
+      const hasMobileInUA = /Mobile/i.test(ua);
+      isDesktopModeActive = !hasMobileInUA;
     } else {
-      isDesktopModeActive = window.innerWidth > 900;
+      isDesktopModeActive = false;
     }
   }
 
-  // 5. 데스크톱 모드가 켜져 있으면 배너 숨김, 켜져 있지 않으면 배너 표시
+  // 5. 데스크톱 모드가 켜져 있으면 배너 숨김, 켜져 있지 않으면 가로/세로 상관없이 배너 표시
   if (isDesktopModeActive) {
     if (el.mobileDesktopBanner) el.mobileDesktopBanner.classList.add('hidden');
   } else {
