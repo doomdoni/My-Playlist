@@ -136,6 +136,8 @@ const el = {
   btnMobileFocus: document.getElementById('btn-mobile-focus'),
   focusOverlay: document.getElementById('focus-mode-overlay'),
   btnCloseFocus: document.getElementById('btn-close-focus'),
+  btnFocusFullscreen: document.getElementById('btn-focus-fullscreen'),
+  iconFocusFullscreen: document.getElementById('icon-focus-fullscreen'),
   focusPlName: document.getElementById('focus-pl-name'),
   focusCarouselViewport: document.getElementById('focus-carousel-viewport'),
   focusTrackList: document.getElementById('focus-track-list'),
@@ -1034,6 +1036,9 @@ function openFocusMode() {
   updateShuffleUI();
   if (el.focusVolumeSlider) el.focusVolumeSlider.value = appState.settings.volume;
   updateVolumeIcon(appState.settings.volume);
+
+  // 🖥️ 감상모드 실행 시 전체화면으로 자동 전환
+  requestFullscreenMode();
 }
 
 function closeFocusMode() {
@@ -1047,10 +1052,65 @@ function closeFocusMode() {
   if (el.btnFocusModeBar) el.btnFocusModeBar.classList.remove('active');
   if (el.btnMobileFocus) el.btnMobileFocus.classList.remove('active');
 
+  // 감상모드 종료 시 전체화면 해제
+  exitFullscreenMode();
+
   // 감상모드 닫힐 때 원래 영상 표시 설정 복원
   if (wasVideoVisibleBeforeFocus && appState.settings.isVideoVisible) {
     if (el.videoWrapper) el.videoWrapper.classList.remove('minimized');
     if (el.contentBody) el.contentBody.classList.remove('video-minimized');
+  }
+}
+
+function requestFullscreenMode() {
+  const docEl = document.documentElement;
+  try {
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      if (docEl.requestFullscreen) {
+        docEl.requestFullscreen().catch(() => {});
+      } else if (docEl.webkitRequestFullscreen) {
+        docEl.webkitRequestFullscreen();
+      } else if (docEl.msRequestFullscreen) {
+        docEl.msRequestFullscreen();
+      }
+    }
+  } catch (e) {
+    console.log('Fullscreen request ignored or unsupported:', e);
+  }
+  updateFocusFullscreenIcon();
+}
+
+function exitFullscreenMode() {
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      } else if (document.msExitFullscreen) {
+        document.msExitFullscreen();
+      }
+    }
+  } catch (e) {
+    console.log('Exit fullscreen error:', e);
+  }
+  updateFocusFullscreenIcon();
+}
+
+function toggleFocusFullscreen() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    exitFullscreenMode();
+  } else {
+    requestFullscreenMode();
+  }
+}
+
+function updateFocusFullscreenIcon() {
+  if (!el.iconFocusFullscreen) return;
+  const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  el.iconFocusFullscreen.className = isFs ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+  if (el.btnFocusFullscreen) {
+    el.btnFocusFullscreen.title = isFs ? '전체화면 종료' : '전체화면으로 보기';
   }
 }
 
@@ -3361,12 +3421,16 @@ function setupEventListeners() {
   if (el.btnFocusModeBar) el.btnFocusModeBar.addEventListener('click', toggleFocusMode);
   if (el.btnMobileFocus) el.btnMobileFocus.addEventListener('click', toggleFocusMode);
   if (el.btnCloseFocus) el.btnCloseFocus.addEventListener('click', closeFocusMode);
+  if (el.btnFocusFullscreen) el.btnFocusFullscreen.addEventListener('click', toggleFocusFullscreen);
   if (el.btnFocusPlayPause) el.btnFocusPlayPause.addEventListener('click', togglePlayPause);
   if (el.btnFocusPrev) el.btnFocusPrev.addEventListener('click', playPrevTrack);
   if (el.btnFocusNext) el.btnFocusNext.addEventListener('click', playNextTrack);
   if (el.btnFocusShuffle) el.btnFocusShuffle.addEventListener('click', toggleShuffle);
   if (el.btnFocusRepeat) el.btnFocusRepeat.addEventListener('click', toggleRepeat);
   setupFocusSeekbarDragEvents();
+
+  document.addEventListener('fullscreenchange', updateFocusFullscreenIcon);
+  document.addEventListener('webkitfullscreenchange', updateFocusFullscreenIcon);
 
   // 감상 모드 스크롤 후 정지 시 현재 곡으로 자동 중앙 복귀
   if (el.focusCarouselViewport) {

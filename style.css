@@ -2023,6 +2023,13 @@ body {
   letter-spacing: -0.02em;
 }
 
+.focus-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.focus-header-btn,
 .focus-close-btn {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
@@ -2034,6 +2041,7 @@ body {
   transition: all var(--transition-fast);
 }
 
+.focus-header-btn:hover,
 .focus-close-btn:hover {
   background: rgba(255, 255, 255, 0.2);
   transform: scale(1.08);
