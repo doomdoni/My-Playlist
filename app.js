@@ -468,7 +468,9 @@ window.onYouTubeIframeAPIReady = function() {
       enablejsapi: 1,
       modestbranding: 1,
       origin: originUrl,
+      widget_referrer: originUrl,
       iv_load_policy: 3, // 영상 내 배너 주석 및 프로모션 카드 비활성화
+      cc_load_policy: 0, // 불필요한 광고/자막 로드 차단
       fs: 1,
       disablekb: 0
     },
@@ -596,6 +598,60 @@ function updateMediaSession(track) {
   } catch (err) {}
 }
 
+let isAdPlaying = false;
+let adSkipInterval = null;
+
+// 🛡️ [광고 초고속 자동 스킵 및 무음 가드]
+// 브라우저 광고차단 확장/브레이브가 없어도 광고 구간을 감지하여 볼륨을 0으로 낮추고 16배속 및 즉시 스킵 처리
+function checkAndHandleAdStream() {
+  if (!ytPlayer || !isPlayerReady) return;
+  try {
+    // YouTube Iframe API의 내부 adState 또는 duration 불일치 확인
+    const playerResponse = (typeof ytPlayer.getPlayerResponse === 'function') ? ytPlayer.getPlayerResponse() : null;
+    const isAd = (typeof ytPlayer.isMuted === 'function' && typeof ytPlayer.getDuration === 'function') && (
+      (playerResponse && (playerResponse.adPlacements || playerResponse.adSlots || playerResponse.videoDetails?.isLiveContent === false && playerResponse.adParams)) ||
+      (typeof ytPlayer.getVideoData === 'function' && ytPlayer.getVideoData() && ytPlayer.getVideoData().isAd)
+    );
+
+    const dur = ytPlayer.getDuration() || 0;
+    const cur = ytPlayer.getCurrentTime() || 0;
+
+    // 광고가 재생 중인 경우
+    if (isAd || (cur < 35 && dur > 0 && dur <= 35 && appState.currentTrackIndex !== -1)) {
+      const activePl = getCurrentPlaylist();
+      const currentTrack = activePl?.tracks?.[appState.currentTrackIndex];
+      // 원본 곡이 35초 이하의 짧은 영상이 아닌 경우 광고로 판정
+      if (currentTrack) {
+        if (!isAdPlaying) {
+          isAdPlaying = true;
+          try {
+            ytPlayer.setPlaybackRate(16); // 광고 구간을 16배속으로 순식간에 통과
+            ytPlayer.mute(); // 광고 소리 음소거
+          } catch (e) {}
+        }
+        // 가능한 경우 광고 끝으로 즉시 이동
+        if (dur > 0 && cur < dur - 0.5) {
+          try {
+            ytPlayer.seekTo(dur, true);
+          } catch (e) {}
+        }
+        return true;
+      }
+    } else if (isAdPlaying) {
+      // 광고가 끝나고 본 영상으로 복귀한 경우
+      isAdPlaying = false;
+      try {
+        ytPlayer.setPlaybackRate(1);
+        if (appState.settings.volume > 0) {
+          ytPlayer.unMute();
+          ytPlayer.setVolume(appState.settings.volume);
+        }
+      } catch (e) {}
+    }
+  } catch (e) {}
+  return false;
+}
+
 function onPlayerStateChange(event) {
   if (event.data === YT.PlayerState.PLAYING) {
     appState.isPlaying = true;
@@ -605,6 +661,9 @@ function onPlayerStateChange(event) {
     preloadUpcomingTracks();
     requestScreenWakeLock();
     startSilentAudioDriver();
+
+    // 광고 스트림 체크
+    checkAndHandleAdStream();
   } else if (event.data === YT.PlayerState.PAUSED) {
     appState.isPlaying = false;
     updatePlayPauseUI(false);
@@ -612,6 +671,18 @@ function onPlayerStateChange(event) {
     setVisualizerState(false);
     pauseSilentAudioDriver();
   } else if (event.data === YT.PlayerState.ENDED) {
+    if (isAdPlaying) {
+      // 광고가 끝난 경우 본 영상 재생 유지
+      isAdPlaying = false;
+      try {
+        ytPlayer.setPlaybackRate(1);
+        if (appState.settings.volume > 0) {
+          ytPlayer.unMute();
+          ytPlayer.setVolume(appState.settings.volume);
+        }
+      } catch (e) {}
+      return;
+    }
     setVisualizerState(false);
     handleTrackEnded();
   }
@@ -1285,6 +1356,9 @@ function startProgressTimer() {
           el.focusProgressFilled.style.width = '0%';
         }
       }
+
+      // 실시간 광고 검사 및 초고속 스킵 실행
+      checkAndHandleAdStream();
     } catch (e) {}
   }, 250);
 }
