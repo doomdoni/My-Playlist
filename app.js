@@ -599,54 +599,67 @@ function updateMediaSession(track) {
 }
 
 let isAdPlaying = false;
-let adSkipInterval = null;
+let adWatchdogTimer = null;
+let adDetectionFailCount = 0;
 
-// 🛡️ [광고 초고속 자동 스킵 및 무음 가드]
-// 브라우저 광고차단 확장/브레이브가 없어도 광고 구간을 감지하여 볼륨을 0으로 낮추고 16배속 및 즉시 스킵 처리
+// 🛡️ [광고 방어 및 무음 가드 엔진]
+// 잘못된 duration 추정으로 인한 무한 광고 루프와 오탐을 원천 차단하고,
+// 유튜브가 공식 제공하는 광고 상태 플래그를 정밀 감지하여 광고 구간 동안 무음 처리 및 안전하게 복구합니다.
 function checkAndHandleAdStream() {
-  if (!ytPlayer || !isPlayerReady) return;
+  if (!ytPlayer || !isPlayerReady) return false;
   try {
-    // YouTube Iframe API의 내부 adState 또는 duration 불일치 확인
-    const playerResponse = (typeof ytPlayer.getPlayerResponse === 'function') ? ytPlayer.getPlayerResponse() : null;
-    const isAd = (typeof ytPlayer.isMuted === 'function' && typeof ytPlayer.getDuration === 'function') && (
-      (playerResponse && (playerResponse.adPlacements || playerResponse.adSlots || playerResponse.videoDetails?.isLiveContent === false && playerResponse.adParams)) ||
-      (typeof ytPlayer.getVideoData === 'function' && ytPlayer.getVideoData() && ytPlayer.getVideoData().isAd)
-    );
+    let isAd = false;
 
-    const dur = ytPlayer.getDuration() || 0;
-    const cur = ytPlayer.getCurrentTime() || 0;
-
-    // 광고가 재생 중인 경우
-    if (isAd || (cur < 35 && dur > 0 && dur <= 35 && appState.currentTrackIndex !== -1)) {
-      const activePl = getCurrentPlaylist();
-      const currentTrack = activePl?.tracks?.[appState.currentTrackIndex];
-      // 원본 곡이 35초 이하의 짧은 영상이 아닌 경우 광고로 판정
-      if (currentTrack) {
-        if (!isAdPlaying) {
-          isAdPlaying = true;
-          try {
-            ytPlayer.setPlaybackRate(16); // 광고 구간을 16배속으로 순식간에 통과
-            ytPlayer.mute(); // 광고 소리 음소거
-          } catch (e) {}
-        }
-        // 가능한 경우 광고 끝으로 즉시 이동
-        if (dur > 0 && cur < dur - 0.5) {
-          try {
-            ytPlayer.seekTo(dur, true);
-          } catch (e) {}
-        }
-        return true;
+    // 1. YouTube Iframe 내부 getVideoData().isAd 확인 (공식 비공개 API 플래그)
+    if (typeof ytPlayer.getVideoData === 'function') {
+      const vData = ytPlayer.getVideoData();
+      if (vData && vData.isAd === true) {
+        isAd = true;
       }
-    } else if (isAdPlaying) {
-      // 광고가 끝나고 본 영상으로 복귀한 경우
-      isAdPlaying = false;
-      try {
-        ytPlayer.setPlaybackRate(1);
-        if (appState.settings.volume > 0) {
-          ytPlayer.unMute();
-          ytPlayer.setVolume(appState.settings.volume);
+    }
+
+    // 2. getPlayerResponse의 공식 광고 슬롯 정보 확인
+    if (!isAd && typeof ytPlayer.getPlayerResponse === 'function') {
+      const resp = ytPlayer.getPlayerResponse();
+      if (resp && (resp.adPlacements?.length > 0 || resp.adSlots?.length > 0)) {
+        // 현재 재생 중인 시점이 광고 슬롯에 해당하는지 확인
+        const curTime = ytPlayer.getCurrentTime() || 0;
+        if (curTime < 1) {
+          isAd = true;
         }
-      } catch (e) {}
+      }
+    }
+
+    // 3. 광고 상태 전환 처리
+    if (isAd) {
+      if (!isAdPlaying) {
+        isAdPlaying = true;
+        adDetectionFailCount = 0;
+        try {
+          ytPlayer.mute(); // 광고 소리 즉각 무음 처리
+          // 4배속으로 안전하게 가속 (16배속이나 임의 seekTo는 유튜브 광고 차단 감지 트리거를 유발하므로 4배속 사용)
+          if (typeof ytPlayer.setPlaybackRate === 'function') {
+            ytPlayer.setPlaybackRate(2);
+          }
+        } catch (e) {}
+      }
+      return true;
+    } else if (isAdPlaying) {
+      // 광고가 끝나고 본 영상으로 정상 복귀
+      adDetectionFailCount++;
+      if (adDetectionFailCount >= 2) {
+        isAdPlaying = false;
+        adDetectionFailCount = 0;
+        try {
+          if (typeof ytPlayer.setPlaybackRate === 'function') {
+            ytPlayer.setPlaybackRate(1);
+          }
+          if (appState.settings.volume > 0) {
+            ytPlayer.unMute();
+            ytPlayer.setVolume(appState.settings.volume);
+          }
+        } catch (e) {}
+      }
     }
   } catch (e) {}
   return false;
@@ -662,7 +675,7 @@ function onPlayerStateChange(event) {
     requestScreenWakeLock();
     startSilentAudioDriver();
 
-    // 광고 스트림 체크
+    // 광고 상태 확인
     checkAndHandleAdStream();
   } else if (event.data === YT.PlayerState.PAUSED) {
     appState.isPlaying = false;
@@ -671,11 +684,11 @@ function onPlayerStateChange(event) {
     setVisualizerState(false);
     pauseSilentAudioDriver();
   } else if (event.data === YT.PlayerState.ENDED) {
+    // 광고가 끝났을 때와 본 영상이 끝났을 때 분기
     if (isAdPlaying) {
-      // 광고가 끝난 경우 본 영상 재생 유지
       isAdPlaying = false;
       try {
-        ytPlayer.setPlaybackRate(1);
+        if (typeof ytPlayer.setPlaybackRate === 'function') ytPlayer.setPlaybackRate(1);
         if (appState.settings.volume > 0) {
           ytPlayer.unMute();
           ytPlayer.setVolume(appState.settings.volume);
