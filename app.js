@@ -130,6 +130,14 @@ const el = {
   btnWakeLock: document.getElementById('btn-wakelock'),
   silentAudioDriver: document.getElementById('silent-audio-driver'),
 
+  // 사이트 전체화면 요소들
+  btnFullscreenSite: document.getElementById('btn-fullscreen-site'),
+  iconFullscreenSite: document.getElementById('icon-fullscreen-site'),
+  btnNavFullscreen: document.getElementById('btn-nav-fullscreen'),
+  iconNavFullscreen: document.getElementById('icon-nav-fullscreen'),
+  btnMobileFullscreen: document.getElementById('btn-mobile-fullscreen'),
+  iconMobileFullscreen: document.getElementById('icon-mobile-fullscreen'),
+
   // 플리만 보기 (감상 모드) 요소들
   btnFocusMode: document.getElementById('btn-focus-mode'),
   btnFocusModeBar: document.getElementById('btn-focus-mode-bar'),
@@ -1075,6 +1083,7 @@ function playNextShuffledTrack() {
 /* ==================== 🌟 플리만 보기 (감상 모드) 기능 ==================== */
 let isFocusModeOpen = false;
 let wasVideoVisibleBeforeFocus = true;
+let wasSiteFullscreenBeforeFocus = false;
 
 let focusScrollTimeout = null;
 let isUserTouchingFocus = false;
@@ -1099,6 +1108,8 @@ function openFocusMode() {
 
   // 감상모드 시 뒤편 영상 화면을 자동으로 숨겨 배경이 거슬리지 않도록 처리
   wasVideoVisibleBeforeFocus = appState.settings.isVideoVisible;
+  wasSiteFullscreenBeforeFocus = isSiteFullscreen();
+
   if (el.videoWrapper) el.videoWrapper.classList.add('minimized');
   if (el.contentBody) el.contentBody.classList.add('video-minimized');
 
@@ -1136,8 +1147,10 @@ function closeFocusMode() {
   if (el.btnFocusModeBar) el.btnFocusModeBar.classList.remove('active');
   if (el.btnMobileFocus) el.btnMobileFocus.classList.remove('active');
 
-  // 감상모드 종료 시 전체화면 해제
-  exitFullscreenMode();
+  // 감상모드 진입 전 이미 사이트 전체화면 상태가 아니었던 경우에만 종료 시 전체화면 해제
+  if (!wasSiteFullscreenBeforeFocus) {
+    exitFullscreenMode();
+  }
 
   // 감상모드 닫힐 때 원래 영상 표시 설정 복원
   if (wasVideoVisibleBeforeFocus && appState.settings.isVideoVisible) {
@@ -1146,10 +1159,14 @@ function closeFocusMode() {
   }
 }
 
+function isSiteFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+}
+
 function requestFullscreenMode() {
   const docEl = document.documentElement;
   try {
-    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    if (!isSiteFullscreen()) {
       if (docEl.requestFullscreen) {
         docEl.requestFullscreen().catch(() => {});
       } else if (docEl.webkitRequestFullscreen) {
@@ -1161,12 +1178,12 @@ function requestFullscreenMode() {
   } catch (e) {
     console.log('Fullscreen request ignored or unsupported:', e);
   }
-  updateFocusFullscreenIcon();
+  updateAllFullscreenIcons();
 }
 
 function exitFullscreenMode() {
   try {
-    if (document.fullscreenElement || document.webkitFullscreenElement) {
+    if (isSiteFullscreen()) {
       if (document.exitFullscreen) {
         document.exitFullscreen().catch(() => {});
       } else if (document.webkitExitFullscreen) {
@@ -1178,24 +1195,63 @@ function exitFullscreenMode() {
   } catch (e) {
     console.log('Exit fullscreen error:', e);
   }
-  updateFocusFullscreenIcon();
+  updateAllFullscreenIcons();
 }
 
-function toggleFocusFullscreen() {
-  if (document.fullscreenElement || document.webkitFullscreenElement) {
+function toggleSiteFullscreen() {
+  if (isSiteFullscreen()) {
     exitFullscreenMode();
   } else {
     requestFullscreenMode();
   }
 }
 
-function updateFocusFullscreenIcon() {
-  if (!el.iconFocusFullscreen) return;
-  const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-  el.iconFocusFullscreen.className = isFs ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+function toggleFocusFullscreen() {
+  toggleSiteFullscreen();
+}
+
+function updateAllFullscreenIcons() {
+  const isFs = isSiteFullscreen();
+
+  // 1. 감상모드 상단 전체화면 아이콘
+  if (el.iconFocusFullscreen) {
+    el.iconFocusFullscreen.className = isFs ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+  }
   if (el.btnFocusFullscreen) {
     el.btnFocusFullscreen.title = isFs ? '전체화면 종료' : '전체화면으로 보기';
+    el.btnFocusFullscreen.classList.toggle('active', isFs);
   }
+
+  // 2. 데스크탑 하단 플레이어 바 사이트 전체화면
+  if (el.iconFullscreenSite) {
+    el.iconFullscreenSite.className = isFs ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+  }
+  if (el.btnFullscreenSite) {
+    el.btnFullscreenSite.title = isFs ? '전체화면 종료 (F 또는 클릭)' : '사이트 전체화면 (F 또는 클릭)';
+    el.btnFullscreenSite.classList.toggle('active', isFs);
+  }
+
+  // 3. 상단 네비 바 전체화면
+  if (el.iconNavFullscreen) {
+    el.iconNavFullscreen.className = isFs ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+  }
+  if (el.btnNavFullscreen) {
+    el.btnNavFullscreen.title = isFs ? '전체화면 종료' : '사이트 전체화면';
+    el.btnNavFullscreen.classList.toggle('active', isFs);
+  }
+
+  // 4. 모바일 하단 보조 제어 바 전체화면
+  if (el.iconMobileFullscreen) {
+    el.iconMobileFullscreen.className = isFs ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+  }
+  if (el.btnMobileFullscreen) {
+    el.btnMobileFullscreen.title = isFs ? '전체화면 종료' : '전체화면';
+    el.btnMobileFullscreen.classList.toggle('active', isFs);
+  }
+}
+
+function updateFocusFullscreenIcon() {
+  updateAllFullscreenIcons();
 }
 
 function toggleFocusMode() {
@@ -3516,8 +3572,14 @@ function setupEventListeners() {
   if (el.btnFocusRepeat) el.btnFocusRepeat.addEventListener('click', toggleRepeat);
   setupFocusSeekbarDragEvents();
 
-  document.addEventListener('fullscreenchange', updateFocusFullscreenIcon);
-  document.addEventListener('webkitfullscreenchange', updateFocusFullscreenIcon);
+  // 사이트 전체화면 버튼 이벤트
+  if (el.btnFullscreenSite) el.btnFullscreenSite.addEventListener('click', toggleSiteFullscreen);
+  if (el.btnNavFullscreen) el.btnNavFullscreen.addEventListener('click', toggleSiteFullscreen);
+  if (el.btnMobileFullscreen) el.btnMobileFullscreen.addEventListener('click', toggleSiteFullscreen);
+
+  document.addEventListener('fullscreenchange', updateAllFullscreenIcons);
+  document.addEventListener('webkitfullscreenchange', updateAllFullscreenIcons);
+  document.addEventListener('msfullscreenchange', updateAllFullscreenIcons);
 
   // 감상 모드 스크롤 후 정지 시 현재 곡으로 자동 중앙 복귀
   if (el.focusCarouselViewport) {
@@ -3695,6 +3757,10 @@ function setupEventListeners() {
     if (e.code === 'Space' && e.target.tagName !== 'INPUT') {
       e.preventDefault();
       togglePlayPause();
+    }
+    if ((e.code === 'KeyF' || e.key === 'f' || e.key === 'F') && e.target.tagName !== 'INPUT') {
+      e.preventDefault();
+      toggleSiteFullscreen();
     }
   });
 

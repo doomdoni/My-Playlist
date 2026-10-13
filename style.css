@@ -551,7 +551,8 @@ body {
 }
 
 .nav-menu-btn,
-.nav-wakelock-btn {
+.nav-wakelock-btn,
+.nav-fs-btn {
   color: var(--text-main);
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -567,9 +568,17 @@ body {
 }
 
 .nav-menu-btn:hover,
-.nav-wakelock-btn:hover {
+.nav-wakelock-btn:hover,
+.nav-fs-btn:hover {
   background-color: var(--bg-card-hover);
   border-color: var(--dynamic-video-color);
+}
+
+.nav-fs-btn.active {
+  color: var(--dynamic-video-color);
+  border-color: var(--dynamic-video-color);
+  background-color: rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 10px var(--dynamic-video-glow);
 }
 
 .nav-wakelock-btn {
@@ -1479,7 +1488,8 @@ body {
   .nav-menu-btn,
   .nav-wakelock-btn,
   .nav-focus-btn,
-  .nav-view-btn {
+  .nav-view-btn,
+  .nav-fs-btn {
     width: 35px;
     height: 35px;
     font-size: 0.95rem;
