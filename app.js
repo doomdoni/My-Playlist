@@ -555,15 +555,72 @@ function updateWakeLockUI(active) {
   }
 }
 
+let lastMediaSessionSec = -1;
+let isUserInitiatedPause = false;
+
+// 10초 무음 PCM WAV Blob 생성 (모바일 및 백그라운드 잠금화면 AudioSession 유지용)
+function initSilentAudioDriver() {
+  if (!el.silentAudioDriver) {
+    el.silentAudioDriver = document.getElementById('silent-audio-driver');
+  }
+  if (!el.silentAudioDriver) return;
+  try {
+    const sampleRate = 8000;
+    const durationSec = 10;
+    const numSamples = sampleRate * durationSec;
+    const buffer = new ArrayBuffer(44 + numSamples);
+    const view = new DataView(buffer);
+
+    const writeStr = (offset, str) => {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    };
+
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + numSamples, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, 1, true); // Mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate, true);
+    view.setUint16(32, 1, true);
+    view.setUint16(34, 8, true); // 8-bit
+    writeStr(36, 'data');
+    view.setUint32(40, numSamples, true);
+
+    const samples = new Uint8Array(buffer, 44, numSamples);
+    samples.fill(128); // 8-bit silence
+
+    const blob = new Blob([buffer], { type: 'audio/wav' });
+    el.silentAudioDriver.src = URL.createObjectURL(blob);
+    el.silentAudioDriver.loop = true;
+    el.silentAudioDriver.volume = 0.01;
+  } catch (e) {
+    console.warn('initSilentAudioDriver error:', e);
+  }
+}
+
 function startSilentAudioDriver() {
+  if (!el.silentAudioDriver) {
+    el.silentAudioDriver = document.getElementById('silent-audio-driver');
+  }
   if (el.silentAudioDriver) {
     try {
+      if (!el.silentAudioDriver.src || el.silentAudioDriver.src === '' || el.silentAudioDriver.src.startsWith('data:')) {
+        initSilentAudioDriver();
+      }
       el.silentAudioDriver.play().catch(() => {});
     } catch (e) {}
   }
 }
 
 function pauseSilentAudioDriver() {
+  if (!el.silentAudioDriver) {
+    el.silentAudioDriver = document.getElementById('silent-audio-driver');
+  }
   if (el.silentAudioDriver) {
     try {
       el.silentAudioDriver.pause();
@@ -571,39 +628,126 @@ function pauseSilentAudioDriver() {
   }
 }
 
+// 최초 사용자 제스처(터치/클릭) 시 모바일 브라우저 오디오 세션 즉각 언락
+const unlockAudioOnGesture = () => {
+  startSilentAudioDriver();
+  window.removeEventListener('click', unlockAudioOnGesture);
+  window.removeEventListener('touchstart', unlockAudioOnGesture);
+};
+window.addEventListener('click', unlockAudioOnGesture, { once: true });
+window.addEventListener('touchstart', unlockAudioOnGesture, { once: true });
+
+// 📱 [잠금화면 미디어 컨트롤러 완벽 연동]
 function updateMediaSession(track) {
   if (!('mediaSession' in navigator) || !track) return;
   try {
     const currentPl = getCurrentPlaylist();
     const plName = currentPl ? currentPl.name : 'My Playlist';
+    const artistName = track.author || plName || 'YouTube Music';
+    const vid = track.videoId || track.id;
 
     navigator.mediaSession.metadata = new MediaMetadata({
       title: track.title,
-      artist: plName,
-      album: 'YouTube Playlist',
+      artist: artistName,
+      album: plName,
       artwork: [
-        { src: track.thumbnail, sizes: '512x512', type: 'image/jpeg' }
+        { src: `https://i.ytimg.com/vi/${vid}/default.jpg`, sizes: '120x90', type: 'image/jpeg' },
+        { src: `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' },
+        { src: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpeg' },
+        { src: `https://i.ytimg.com/vi/${vid}/sddefault.jpg`, sizes: '640x480', type: 'image/jpeg' },
+        { src: `https://i.ytimg.com/vi/${vid}/maxresdefault.jpg`, sizes: '1280x720', type: 'image/jpeg' },
+        { src: track.thumbnail || `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`, sizes: '512x512', type: 'image/jpeg' }
       ]
     });
 
-    navigator.mediaSession.setActionHandler('play', () => {
-      if (ytPlayer && isPlayerReady) ytPlayer.playVideo();
+    navigator.mediaSession.playbackState = appState.isPlaying ? 'playing' : 'paused';
+
+    const safeSetAction = (action, handler) => {
+      try {
+        navigator.mediaSession.setActionHandler(action, handler);
+      } catch (e) {}
+    };
+
+    // 1. 재생
+    safeSetAction('play', () => {
+      playCurrentTrack();
     });
-    navigator.mediaSession.setActionHandler('pause', () => {
-      if (ytPlayer && isPlayerReady) ytPlayer.pauseVideo();
+
+    // 2. 일시정지
+    safeSetAction('pause', () => {
+      pauseCurrentTrack();
     });
-    navigator.mediaSession.setActionHandler('previoustrack', () => {
+
+    // 3. 이전곡
+    safeSetAction('previoustrack', () => {
       playPrevTrack();
     });
-    navigator.mediaSession.setActionHandler('nexttrack', () => {
+
+    // 4. 다음곡
+    safeSetAction('nexttrack', () => {
       playNextTrack();
     });
-    navigator.mediaSession.setActionHandler('seekto', (details) => {
-      if (details.seekTime && ytPlayer && isPlayerReady) {
+
+    // 5. 시크바 탐색
+    safeSetAction('seekto', (details) => {
+      if (details.seekTime !== undefined && ytPlayer && isPlayerReady) {
         ytPlayer.seekTo(details.seekTime, true);
+        lastMediaSessionSec = -1;
+        updateMediaSessionPositionState();
       }
     });
-  } catch (err) {}
+
+    // 6. 10초 뒤로 가기
+    safeSetAction('seekbackward', (details) => {
+      if (!ytPlayer || !isPlayerReady) return;
+      const cur = ytPlayer.getCurrentTime() || 0;
+      const offset = (details && details.seekOffset) ? details.seekOffset : 10;
+      ytPlayer.seekTo(Math.max(0, cur - offset), true);
+      lastMediaSessionSec = -1;
+      updateMediaSessionPositionState();
+    });
+
+    // 7. 10초 앞으로 가기
+    safeSetAction('seekforward', (details) => {
+      if (!ytPlayer || !isPlayerReady) return;
+      const cur = ytPlayer.getCurrentTime() || 0;
+      const dur = ytPlayer.getDuration() || 0;
+      const offset = (details && details.seekOffset) ? details.seekOffset : 10;
+      ytPlayer.seekTo(Math.min(dur, cur + offset), true);
+      lastMediaSessionSec = -1;
+      updateMediaSessionPositionState();
+    });
+
+    // 8. 정지
+    safeSetAction('stop', () => {
+      pauseCurrentTrack();
+    });
+
+    lastMediaSessionSec = -1;
+    updateMediaSessionPositionState();
+  } catch (err) {
+    console.warn('updateMediaSession error:', err);
+  }
+}
+
+function updateMediaSessionPositionState() {
+  if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
+  if (!ytPlayer || !isPlayerReady) return;
+  try {
+    const duration = ytPlayer.getDuration() || 0;
+    const curTime = ytPlayer.getCurrentTime() || 0;
+    const currentSec = Math.floor(curTime);
+
+    if (currentSec !== lastMediaSessionSec && duration > 0 && curTime >= 0 && curTime <= duration) {
+      lastMediaSessionSec = currentSec;
+      const rate = (ytPlayer.getPlaybackRate && typeof ytPlayer.getPlaybackRate === 'function') ? ytPlayer.getPlaybackRate() : 1;
+      navigator.mediaSession.setPositionState({
+        duration: duration,
+        playbackRate: rate || 1,
+        position: Math.min(curTime, duration)
+      });
+    }
+  } catch (e) {}
 }
 
 let isAdPlaying = false;
@@ -676,6 +820,7 @@ function checkAndHandleAdStream() {
 function onPlayerStateChange(event) {
   if (event.data === YT.PlayerState.PLAYING) {
     appState.isPlaying = true;
+    isUserInitiatedPause = false;
     updatePlayPauseUI(true);
     startProgressTimer();
     setVisualizerState(true);
@@ -683,14 +828,46 @@ function onPlayerStateChange(event) {
     requestScreenWakeLock();
     startSilentAudioDriver();
 
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = 'playing';
+      } catch (e) {}
+    }
+    updateMediaSessionPositionState();
+
     // 광고 상태 확인
     checkAndHandleAdStream();
   } else if (event.data === YT.PlayerState.PAUSED) {
+    // 🛑 모바일 화면 꺼짐(잠금화면 전환) 시 브라우저 강제 pause 방지 및 백그라운드 재생 유지
+    if (document.visibilityState === 'hidden' && !isUserInitiatedPause) {
+      startSilentAudioDriver();
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.playbackState = 'playing';
+        } catch (e) {}
+      }
+      setTimeout(() => {
+        if (!isUserInitiatedPause && ytPlayer && isPlayerReady) {
+          try {
+            ytPlayer.playVideo();
+          } catch (e) {}
+        }
+      }, 100);
+      return;
+    }
+
     appState.isPlaying = false;
     updatePlayPauseUI(false);
     stopProgressTimer();
     setVisualizerState(false);
     pauseSilentAudioDriver();
+
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.playbackState = 'paused';
+      } catch (e) {}
+    }
+    updateMediaSessionPositionState();
   } else if (event.data === YT.PlayerState.ENDED) {
     // 광고가 끝났을 때와 본 영상이 끝났을 때 분기
     if (isAdPlaying) {
@@ -991,6 +1168,53 @@ function playNextTrack() {
   playTrackByIndex(nextIdx);
 }
 
+function playCurrentTrack() {
+  isUserInitiatedPause = false;
+  if (appState.currentTrackIndex === -1) {
+    const currentPl = getCurrentPlaylist();
+    if (currentPl && currentPl.tracks.length > 0) {
+      playTrackByIndex(0);
+      return;
+    }
+  }
+  startSilentAudioDriver();
+  if (ytPlayer && isPlayerReady) {
+    try {
+      ytPlayer.playVideo();
+    } catch (e) {}
+  }
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.playbackState = 'playing';
+    } catch (e) {}
+  }
+  updatePlayPauseUI(true);
+}
+
+function pauseCurrentTrack() {
+  isUserInitiatedPause = true;
+  if (ytPlayer && isPlayerReady) {
+    try {
+      ytPlayer.pauseVideo();
+    } catch (e) {}
+  }
+  pauseSilentAudioDriver();
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.playbackState = 'paused';
+    } catch (e) {}
+  }
+  updatePlayPauseUI(false);
+}
+
+function togglePlayPause() {
+  if (appState.isPlaying) {
+    pauseCurrentTrack();
+  } else {
+    playCurrentTrack();
+  }
+}
+
 function playPrevTrack() {
   const currentPl = getCurrentPlaylist();
   if (!currentPl || currentPl.tracks.length === 0) return;
@@ -1016,6 +1240,7 @@ function playTrackByIndex(index) {
   const currentPl = getCurrentPlaylist();
   if (!currentPl || !currentPl.tracks[index]) return;
 
+  isUserInitiatedPause = false;
   appState.currentTrackIndex = index;
   const track = currentPl.tracks[index];
 
@@ -1030,6 +1255,7 @@ function playTrackByIndex(index) {
   appState.isPlaying = true;
   updatePlayPauseUI(true);
   setVisualizerState(true);
+  startSilentAudioDriver();
 
   extractAndApplyVideoColor(track.thumbnail, track.id);
   updateNowPlayingInfo(track);
@@ -1428,6 +1654,9 @@ function startProgressTimer() {
 
       // 실시간 광고 검사 및 초고속 스킵 실행
       checkAndHandleAdStream();
+
+      // 잠금화면 진행률 / 시크바 동기화 (초 단위 쓰로틀링 내장)
+      updateMediaSessionPositionState();
     } catch (e) {}
   }, 250);
 }
@@ -3422,25 +3651,6 @@ function setupEventListeners() {
     addTrackFromUrl(url);
   });
 
-  const togglePlayPause = () => {
-    if (!ytPlayer || !isPlayerReady) return;
-    if (appState.currentTrackIndex === -1) {
-      const currentPl = getCurrentPlaylist();
-      if (currentPl && currentPl.tracks.length > 0) {
-        playTrackByIndex(0);
-      }
-      return;
-    }
-
-    try {
-      if (appState.isPlaying) {
-        ytPlayer.pauseVideo();
-      } else {
-        ytPlayer.playVideo();
-      }
-    } catch (e) {}
-  };
-
   el.btnPlayPause.addEventListener('click', togglePlayPause);
   if (el.btnMobilePlayPause) el.btnMobilePlayPause.addEventListener('click', togglePlayPause);
 
@@ -3716,7 +3926,7 @@ function setupEventListeners() {
     el.btnWakeLock.addEventListener('click', toggleWakeLock);
   }
 
-  // 화면 복귀 및 탭 전환 시 자동 복구 & 동기화
+  // 화면 복귀 및 탭 전환 / 잠금화면 진입 시 자동 복구 & 백그라운드 유지
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
       if (activeSyncRoomId) {
@@ -3733,6 +3943,13 @@ function setupEventListeners() {
             }
           } catch (e) {}
         }
+      }
+    } else {
+      // document.visibilityState === 'hidden' (화면 꺼짐, 잠금화면 전환, 다른 앱 이동)
+      if (appState.isPlaying) {
+        // 모바일/데스크톱 잠금화면 미디어 컨트롤러 및 오디오 재생 세션 유지
+        startSilentAudioDriver();
+        updateMediaSessionPositionState();
       }
     }
   });
@@ -3847,6 +4064,7 @@ function setupMobileGestures() {
 function init() {
   checkProtocol();
   loadState();
+  initSilentAudioDriver();
   initTopSoundWaveform();
   setupEventListeners();
   renderPlaylists();
