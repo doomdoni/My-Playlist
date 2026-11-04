@@ -25,7 +25,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800;900&family=Montserrat:wght@700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <link rel="stylesheet" href="style.css?v=2.5.0">
+  <link rel="stylesheet" href="style.css?v=4.1.0">
 </head>
 <body>
   <!-- 로컬 파일 프로토콜(file://) 경고 배너 -->
@@ -136,15 +136,15 @@
 
       <!-- URL 입력 및 곡 추가 카드 -->
       <section class="add-track-section">
-        <form id="form-add-track" class="add-track-form">
+        <form id="form-add-track" class="add-track-form" onsubmit="event.preventDefault(); return false;" action="javascript:void(0);">
           <div class="input-group">
             <i class="fa-solid fa-link input-icon"></i>
-            <input type="text" id="input-youtube-url" placeholder="유튜브 링크 입력 (watch?v=, youtu.be/ 등)" required autocomplete="off">
+            <input type="text" id="input-youtube-url" placeholder="유튜브 영상 링크(URL)를 입력하세요 (예: https://youtu.be/...)" autocomplete="off">
             <button type="button" id="btn-paste-url" class="btn-paste" title="클립보드 붙여넣기">
               <i class="fa-solid fa-paste"></i>
             </button>
           </div>
-          <button type="submit" class="btn-primary btn-touch" id="btn-submit-add">
+          <button type="button" class="btn-primary btn-touch" id="btn-submit-add">
             <i class="fa-solid fa-plus"></i> <span class="btn-add-text">추가</span>
           </button>
         </form>
@@ -155,7 +155,43 @@
       <div class="content-body" id="content-body">
         <!-- 왼쪽: 트랙 목록 -->
         <section class="tracks-section" id="tracks-section">
+          <!-- 일괄 편집 상단 툴바 -->
+          <div class="tracks-toolbar">
+            <div class="tracks-toolbar-left">
+              <button id="btn-toggle-select-mode" class="btn-toolbar-select" title="노래 일괄 선택 모드 켜기/끄기">
+                <i class="fa-solid fa-list-check"></i> <span>선택</span>
+              </button>
+              <span id="track-count-badge" class="track-count-badge">0곡</span>
+            </div>
+            <!-- 일괄 작업 컨트롤 (선택 모드 활성화 시 표시) -->
+            <div id="batch-action-bar" class="batch-action-bar hidden">
+              <label class="batch-select-all-label" title="전체 선택/해제">
+                <input type="checkbox" id="chk-select-all-tracks">
+                <span>전체</span>
+              </label>
+              <span id="batch-selected-count" class="batch-selected-count">0개 선택</span>
+              <div class="batch-btn-group">
+                <button id="btn-batch-move-up" class="btn-batch-ctrl" title="선택한 곡 위로 이동">
+                  <i class="fa-solid fa-arrow-up"></i>
+                </button>
+                <button id="btn-batch-move-down" class="btn-batch-ctrl" title="선택한 곡 아래로 이동">
+                  <i class="fa-solid fa-arrow-down"></i>
+                </button>
+                <button id="btn-batch-move-top" class="btn-batch-ctrl" title="선택한 곡 맨 위로 이동">
+                  <i class="fa-solid fa-angles-up"></i>
+                </button>
+                <button id="btn-batch-move-bottom" class="btn-batch-ctrl" title="선택한 곡 맨 아래로 이동">
+                  <i class="fa-solid fa-angles-down"></i>
+                </button>
+                <button id="btn-batch-delete" class="btn-batch-danger" title="선택한 곡 일괄 삭제">
+                  <i class="fa-solid fa-trash-can"></i> <span>삭제</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div class="tracks-header">
+            <span class="col-check hidden" id="col-header-check"></span>
             <span class="col-drag"></span>
             <span class="col-index">#</span>
             <span class="col-title">곡 제목 (드래그하여 순서 변경)</span>
@@ -167,7 +203,7 @@
             </ul>
             <div id="empty-track-msg" class="empty-msg">
               <i class="fa-solid fa-music"></i>
-              <p id="empty-state-text">플레이리스트가 비어있습니다.<br>상단 입력창에 유튜브 링크를 붙여넣어 추가해보세요!</p>
+              <p id="empty-state-text">플레이리스트가 비어있습니다.<br>상단 입력창에 유튜브 링크나 노래 제목을 검색하여 추가해보세요!</p>
             </div>
           </div>
         </section>
@@ -284,8 +320,11 @@
 
         <!-- 모바일 하단 보조 제어 바 -->
         <div class="mobile-sub-controls mobile-only">
-          <button id="btn-mobile-focus" class="control-btn-sm" title="플리만 보기 (감상 모드)">
+          <button id="btn-mobile-focus" class="control-btn-sm" title="감상 모드 (앨범아트 캐러셀)">
             <i class="fa-solid fa-compact-disc"></i>
+          </button>
+          <button id="btn-mobile-lyrics" class="control-btn-sm" title="가사 모드 (실시간 싱크 가사, L)">
+            <i class="fa-solid fa-microphone-lines"></i>
           </button>
           <button id="btn-mobile-fullscreen" class="control-btn-sm" title="사이트 전체화면">
             <i class="fa-solid fa-expand" id="icon-mobile-fullscreen"></i>
@@ -308,8 +347,11 @@
         <button id="btn-fullscreen-site" class="control-btn" title="사이트 전체화면 (F 또는 클릭)">
           <i class="fa-solid fa-expand" id="icon-fullscreen-site"></i>
         </button>
-        <button id="btn-focus-mode-bar" class="control-btn" title="플리만 보기 (감상 모드)">
+        <button id="btn-focus-mode-bar" class="control-btn" title="감상 모드 (앨범아트/플리 캐러셀)">
           <i class="fa-solid fa-compact-disc"></i>
+        </button>
+        <button id="btn-bar-lyrics" class="control-btn" title="가사 모드 (실시간 싱크 가사, L)">
+          <i class="fa-solid fa-microphone-lines"></i>
         </button>
         <button id="btn-toggle-video" class="control-btn" title="영상 화면 숨기기/보기">
           <i class="fa-solid fa-display"></i>
@@ -324,7 +366,7 @@
     </footer>
   </div>
 
-  <!-- ==================== 🌟 플리만 보기 (포커스 감상 모드 오버레이) ==================== -->
+  <!-- ==================== 🌟 감상 모드 / 가사 모드 (풀스크린 오버레이) ==================== -->
   <div id="focus-mode-overlay" class="focus-mode-overlay hidden">
     <!-- 배경 동적 색상 블러 효과 -->
     <div class="focus-ambient-bg"></div>
@@ -332,14 +374,17 @@
     <!-- 상단 헤더 & 닫기 버튼 -->
     <div class="focus-header">
       <div class="focus-header-info">
-        <span class="focus-badge"><i class="fa-solid fa-sparkles"></i> 감상 모드</span>
+        <span id="focus-badge" class="focus-badge"><i class="fa-solid fa-compact-disc"></i> 감상 모드</span>
         <h2 id="focus-pl-name" class="focus-pl-name">플레이리스트</h2>
       </div>
       <div class="focus-header-actions">
+        <button id="btn-focus-lyrics" class="btn-icon focus-header-btn" title="가사/감상 모드 전환 (L)">
+          <i class="fa-solid fa-microphone-lines" id="icon-focus-lyrics"></i>
+        </button>
         <button id="btn-focus-fullscreen" class="btn-icon focus-header-btn" title="전체화면 토글">
           <i class="fa-solid fa-expand" id="icon-focus-fullscreen"></i>
         </button>
-        <button id="btn-close-focus" class="btn-icon focus-close-btn" title="감상 모드 닫기 (ESC)">
+        <button id="btn-close-focus" class="btn-icon focus-close-btn" title="닫기 (ESC)">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
@@ -349,6 +394,98 @@
     <div class="focus-carousel-viewport" id="focus-carousel-viewport">
       <div class="focus-track-list" id="focus-track-list">
         <!-- 동적으로 렌더링되는 트랙 카드들 -->
+      </div>
+    </div>
+
+    <!-- 🎤 실시간 동기화 가사 뷰포트 -->
+    <div class="focus-lyrics-viewport hidden" id="focus-lyrics-viewport">
+      <div class="focus-lyrics-toolbar">
+        <div class="lyrics-track-meta">
+          <span id="focus-lyrics-title" class="lyrics-title">가사</span>
+          <span id="focus-lyrics-artist" class="lyrics-artist"></span>
+        </div>
+        <div class="lyrics-tools-right">
+          <button id="btn-lyrics-search-toggle" class="lyrics-tool-btn" title="가사 직접 검색">
+            <i class="fa-solid fa-magnifying-glass"></i>
+          </button>
+          <button id="btn-lyrics-custom-toggle" class="lyrics-tool-btn" title="가사 직접 등록/편집">
+            <i class="fa-solid fa-pen-to-square"></i>
+          </button>
+          <button id="btn-lyrics-settings-toggle" class="lyrics-tool-btn" title="가사 및 싱크 설정">
+            <i class="fa-solid fa-sliders"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- 가사 수동 검색창 (토글) -->
+      <div id="focus-lyrics-search-box" class="focus-lyrics-search-box hidden">
+        <input type="text" id="input-lyrics-query" placeholder="가수명 또는 노래 제목 직접 검색 (예: 뉴진스 Hype Boy)" />
+        <button id="btn-lyrics-query-submit" class="btn-primary-sm">검색</button>
+      </div>
+
+      <!-- 📝 가사 모드 전용 가사 직접 등록/편집 패널 -->
+      <div id="focus-lyrics-custom-panel" class="focus-lyrics-settings-panel hidden">
+        <div class="lyrics-settings-header">
+          <span><i class="fa-solid fa-pen-to-square"></i> 가사 직접 등록 / 붙여넣기</span>
+          <button id="btn-close-lyrics-custom" class="lyrics-settings-close-btn" title="닫기"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="lyrics-settings-content" style="padding: 10px 4px 6px 4px;">
+          <p style="font-size: 0.82rem; color: rgba(255,255,255,0.7); margin-bottom: 8px; line-height: 1.45;">
+            온라인에 없는 노래의 가사를 직접 붙여넣어 등록할 수 있습니다.<br>
+            일반 가사는 영상 길이에 맞추어 <strong>스마트 자동 싱크</strong>가 생성되며, <code>[00:15.50]</code> 형태의 타임싱크 LRC 가사도 완벽 지원합니다.
+          </p>
+          <textarea id="textarea-custom-lyrics" placeholder="여기에 가사를 복사해서 붙여넣으세요...&#10;&#10;예시 1 (일반 줄글 가사):&#10;첫 번째 소절 가사&#10;두 번째 소절 가사&#10;세 번째 소절 가사...&#10;&#10;예시 2 (LRC 타임싱크 가사):&#10;[00:12.30] 첫 번째 소절 가사&#10;[00:16.80] 두 번째 소절 가사..." style="width: 100%; height: 160px; background: rgba(0,0,0,0.38); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; color: #fff; padding: 10px 12px; font-size: 0.85rem; line-height: 1.5; font-family: inherit; resize: vertical; outline: none;"></textarea>
+          <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 10px;">
+            <button id="btn-custom-lyrics-delete" class="btn-danger-sm hidden" style="background: rgba(239,68,68,0.22); border: 1px solid rgba(239,68,68,0.45); color: #fca5a5; padding: 6px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; cursor: pointer;">
+              <i class="fa-solid fa-trash-can"></i> 등록 가사 삭제
+            </button>
+            <button id="btn-custom-lyrics-save" class="btn-primary-sm" style="padding: 7px 18px; font-size: 0.85rem; font-weight: 600;">
+              <i class="fa-solid fa-check"></i> 저장 및 가사 적용
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ⚙️ 가사 모드 전용 설정 패널 (싱크 미세조정 / 표시 설정) -->
+      <div id="focus-lyrics-settings-panel" class="focus-lyrics-settings-panel hidden">
+        <div class="lyrics-settings-header">
+          <span><i class="fa-solid fa-sliders"></i> 가사 및 싱크 설정</span>
+          <button id="btn-close-lyrics-settings" class="lyrics-settings-close-btn" title="닫기"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="lyrics-settings-content">
+          <div class="lyrics-settings-row">
+            <div class="lyrics-settings-label">
+              <strong>가사 싱크 정밀 조정</strong>
+              <small>음악보다 가사가 빠르거나 느릴 때 조절하세요</small>
+            </div>
+            <div class="lyrics-sync-badge">
+              <button id="btn-lyrics-offset-minus-2" class="lyrics-offset-btn" title="2초 느리게">-2s</button>
+              <button id="btn-lyrics-offset-minus" class="lyrics-offset-btn" title="0.5초 느리게">-0.5s</button>
+              <span id="lyrics-offset-val" class="lyrics-offset-val">0.0s</span>
+              <button id="btn-lyrics-offset-plus" class="lyrics-offset-btn" title="0.5초 빠르게">+0.5s</button>
+              <button id="btn-lyrics-offset-plus-2" class="lyrics-offset-btn" title="2초 빠르게">+2s</button>
+              <button id="btn-lyrics-offset-reset" class="lyrics-offset-reset-btn" title="싱크 초기화"><i class="fa-solid fa-rotate-left"></i></button>
+            </div>
+          </div>
+          <div class="lyrics-settings-row">
+            <div class="lyrics-settings-label">
+              <strong>가사 크기 조절</strong>
+              <small>가사 텍스트 크기를 취향에 맞게 변경합니다</small>
+            </div>
+            <div class="lyrics-font-size-ctrl">
+              <button id="btn-lyrics-font-smaller" class="lyrics-setting-btn" title="글자 작게">A-</button>
+              <button id="btn-lyrics-font-normal" class="lyrics-setting-btn active" title="기본 크기">보통</button>
+              <button id="btn-lyrics-font-larger" class="lyrics-setting-btn" title="글자 크게">A+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 가사 스크롤 영역 -->
+      <div class="focus-lyrics-scroll" id="focus-lyrics-scroll">
+        <div class="focus-lyrics-list" id="focus-lyrics-list">
+          <!-- 동적 가사 라인들 -->
+        </div>
       </div>
     </div>
 
@@ -507,6 +644,6 @@
 
   <!-- YouTube IFrame API 로더 스크립트 -->
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=4.1.0"></script>
 </body>
 </html>
