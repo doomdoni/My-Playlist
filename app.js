@@ -2186,17 +2186,23 @@ function isCompilationVideo(title) {
 
 // 2-2. YouTube 영상 제목에서 순수 곡명과 아티스트를 최우선으로 정밀 분리/분석하는 엔진
 function analyzeTrackTitle(rawTitle, rawAuthor = '') {
-  if (!rawTitle) return { title: '', artist: '' };
+  if (!rawTitle) return { title: '', artist: '', subtitle: '' };
   let str = rawTitle;
 
-  // 0. 파이프(|) 구분 채널명/방송사/쇼 태그 분리 (예: '박재정 - 헤어지자 말해요 | 딩고뮤직')
+  // 0. 파이프(|) 또는 슬래시 구분 채널명/방송사/쇼 태그 분리 (예: '박재정 - 헤어지자 말해요 | 딩고뮤직', 'Dingo Music | 박재정 - 헤어지자 말해요')
   if (str.includes('|')) {
-    const parts = str.split('|').map(p => p.trim());
+    const parts = str.split('|').map(p => p.trim()).filter(Boolean);
     if (parts.length >= 2) {
-      if (parts[0].includes('-') || parts[0].includes('"') || parts[0].includes("'") || parts[0].includes('(')) {
+      const isPart0Tag = /(dingo|딩고|1thek|kbs|sbs|mbc|mnet|choom|live|라이브|뮤직|music|official|clip|클립|세로라이브|킬링보이스)/i.test(parts[0]) || isChannelPublisher(parts[0]);
+      const isPart1Tag = /(dingo|딩고|1thek|kbs|sbs|mbc|mnet|choom|live|라이브|뮤직|music|official|clip|클립|세로라이브|킬링보이스)/i.test(parts[1]) || isChannelPublisher(parts[1]);
+      if (isPart0Tag && !isPart1Tag) {
+        str = parts[1];
+      } else if (isPart1Tag && !isPart0Tag) {
         str = parts[0];
-      } else if (/(dingo|딩고|1thek|kbs|sbs|mnet|choom|live|라이브|뮤직|music|official|video|오피셜|clip|클립)/i.test(parts[1])) {
+      } else if (parts[0].includes('-')) {
         str = parts[0];
+      } else if (parts[1].includes('-')) {
+        str = parts[1];
       }
     }
   }
@@ -2220,14 +2226,23 @@ function analyzeTrackTitle(rawTitle, rawAuthor = '') {
     if (pM) {
       a = /[\uAC00-\uD7AF]/.test(pM[2]) ? sanitizeForQuery(pM[2]) : sanitizeForQuery(pM[1]);
     }
-    if (t) return { title: t, artist: a || rawAuthor || '' };
+    const authorClean = rawAuthor && !isChannelPublisher(rawAuthor) ? rawAuthor : '';
+    if (t) return { title: t, artist: a || authorClean || '', subtitle: '' };
   }
 
-  // 3. 구분자 ' - ', ' _ ', ' : ', ' | ' 분리 (예: '태연 - To. X' 또는 '헤어지자 말해요 - 박재정')
-  const sepM = str.match(/^(.+?)\s*[\-_:\/|]\s*(.+)$/);
+  // 3. 구분자 ' - ', ' – ', ' — ', ' : ', ' | ', ' / ' 분리 (단, fromis_9, (G)I-DLE, DAY-6 같은 단어 내부 구분자는 절대 쪼개지 않음)
+  const sepM = str.match(/^(.+?)\s+[\-–—:\/|]\s+(.+)$/);
   if (sepM) {
     let raw1 = sepM[1].trim();
     let raw2 = sepM[2].replace(/\((feat|ft)\.[^\)]*\)/gi, ' ').trim();
+    let subTitle = '';
+
+    // 곡명 뒤 괄호 속 부제/영문명 분리 (예: '헤어지자 말해요 (Let\'s Say Goodbye)')
+    const subM = raw2.match(/^([^\(\)]+)\s*\(([^\)]+)\)/);
+    if (subM) {
+      raw2 = subM[1].trim();
+      subTitle = sanitizeForQuery(subM[2]);
+    }
 
     const pM1 = raw1.match(/^([^\(\)]+)\s*\(([^\)]+)\)/);
     if (pM1) {
@@ -2241,16 +2256,18 @@ function analyzeTrackTitle(rawTitle, rawAuthor = '') {
     const s1 = sanitizeForQuery(raw1);
     const s2 = sanitizeForQuery(raw2);
 
-    // part2가 아티스트인지 확인 (예: '헤어지자 말해요 - 박재정', 'Ditto - NewJeans')
+    const authorClean = rawAuthor && !isChannelPublisher(rawAuthor) ? rawAuthor : '';
+
+    // 역방향 (곡명 - 아티스트) 확인: s2가 아티스트이고 s1이 곡명인지 확인
     const isPart2Artist = Object.keys(COMMON_ARTIST_MAP).some(k => s2.toLowerCase() === k.toLowerCase()) ||
-                          (rawAuthor && (rawAuthor.toLowerCase().includes(s2.toLowerCase()) || s2.toLowerCase().includes(rawAuthor.toLowerCase())));
+                          (authorClean && (authorClean.toLowerCase().includes(s2.toLowerCase()) || s2.toLowerCase().includes(authorClean.toLowerCase())));
     const isPart1Artist = Object.keys(COMMON_ARTIST_MAP).some(k => s1.toLowerCase() === k.toLowerCase()) ||
-                          (rawAuthor && (rawAuthor.toLowerCase().includes(s1.toLowerCase()) || s1.toLowerCase().includes(rawAuthor.toLowerCase())));
+                          (authorClean && (authorClean.toLowerCase().includes(s1.toLowerCase()) || s1.toLowerCase().includes(authorClean.toLowerCase())));
 
     if (isPart2Artist && !isPart1Artist) {
-      return { title: s1, artist: s2 };
+      return { title: s1, artist: s2, subtitle: subTitle };
     } else {
-      return { title: s2, artist: s1 || rawAuthor || '' };
+      return { title: s2, artist: s1 || authorClean || '', subtitle: subTitle };
     }
   }
 
@@ -2259,7 +2276,7 @@ function analyzeTrackTitle(rawTitle, rawAuthor = '') {
   if (pM2 && pM2[3] && pM2[3].trim().length >= 1) {
     const a = /[\uAC00-\uD7AF]/.test(pM2[1]) ? pM2[1].trim() : pM2[2].trim();
     const t = sanitizeForQuery(pM2[3]);
-    if (t) return { title: t, artist: a };
+    if (t) return { title: t, artist: a, subtitle: '' };
   }
 
   // 5. 구분자 없이 공백으로만 아티스트와 곡명이 이어진 경우 (예: "박재정 헤어지자 말해요", "뉴진스 Hype Boy")
@@ -2271,19 +2288,20 @@ function analyzeTrackTitle(rawTitle, rawAuthor = '') {
       if (lowerFull.startsWith(artLow + ' ')) {
         const foundTit = cleanFull.substring(artistKey.length).trim();
         if (foundTit.length >= 1) {
-          return { title: foundTit, artist: artistKey };
+          return { title: foundTit, artist: artistKey, subtitle: '' };
         }
       } else if (lowerFull.endsWith(' ' + artLow)) {
         const foundTit = cleanFull.substring(0, cleanFull.length - artistKey.length).trim();
         if (foundTit.length >= 1) {
-          return { title: foundTit, artist: artistKey };
+          return { title: foundTit, artist: artistKey, subtitle: '' };
         }
       }
     }
   }
 
   // 6. 기본 정제
-  return { title: cleanFull || rawTitle, artist: rawAuthor || '' };
+  const authorClean = rawAuthor && !isChannelPublisher(rawAuthor) ? rawAuthor : '';
+  return { title: cleanFull || rawTitle, artist: authorClean || '', subtitle: '' };
 }
 
 // 3. YouTube 영상 제목에서 불필요한 태그/수식어 지능형 정제 및 최적의 검색어 후보군 생성
@@ -2324,9 +2342,28 @@ function getLyricsSearchCandidates(track) {
     }
   };
 
-  // 정밀 분석 엔진의 결과(분석된 아티스트 + 곡명)를 1순위로 즉시 등록
+  // 정밀 분석 엔진의 결과(분석된 아티스트 + 곡명)를 1순위로 즉시 등록 (별칭 및 부제까지 모두 확장)
   if (analyzed.artist && analyzed.title) {
-    addPair(analyzed.artist, analyzed.title);
+    const artList = expandArtistNames(analyzed.artist);
+    const titList = expandTitleNames(analyzed.title);
+    for (const a of artList) {
+      for (const t of titList) {
+        addPair(a, t);
+      }
+    }
+    if (analyzed.subtitle) {
+      const subTitles = expandTitleNames(analyzed.subtitle);
+      for (const a of artList) {
+        for (const st of subTitles) {
+          addPair(a, st);
+        }
+      }
+    }
+  } else if (analyzed.title) {
+    const titList = expandTitleNames(analyzed.title);
+    for (const t of titList) {
+      if (t.length >= 2 && !queryStrings.includes(t)) queryStrings.push(t);
+    }
   }
 
   for (const raw of titles) {
@@ -2357,8 +2394,8 @@ function getLyricsSearchCandidates(track) {
       }
     }
 
-    // 3단계: 구분자 ' - ', ' _ ', ' : ', ' | ' 분리 (예: '태연 (TAEYEON) - To. X', 'Charlie Puth - Attention')
-    const sepMatch = stripped.match(/^(.+?)\s*[\-_:\/|]\s*(.+)$/);
+    // 3단계: 구분자 ' - ', ' – ', ' — ', ' : ', ' | ', ' / ' 분리
+    const sepMatch = stripped.match(/^(.+?)\s+[\-–—:\/|]\s+(.+)$/);
     if (sepMatch) {
       const leftPart = sepMatch[1];
       const rightPart = sepMatch[2].replace(/\((feat|ft)\.[^\)]*\)/gi, ' ');
@@ -2646,15 +2683,129 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
     } catch (e) {}
   }
 
-  const analyzed = analyzeTrackTitle(track ? track.title : '', track ? (track.author || '') : '');
-  const expectedTitleNorm = (analyzed.title || '').toLowerCase().replace(/[\s\-_'"\.,!?]/g, '');
+  const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
-  // 2. 캐시 확인 시 분석된 곡명과 일치하는지 엄격 검증 (오매칭된 과거 캐시 즉각 무효화 & 실시간 검색 보장)
+  // 헬퍼: 검색 결과 정합성 정밀 검증 (오매칭 원천 차단 & 곡명/아티스트/별칭 일치 필수)
+  const isValidCandidate = (item, trk, mQuery) => {
+    if (!item) return false;
+    const rawItemTitle = (item.trackName || item.name || '').trim();
+    if (!rawItemTitle) return false;
+    const rawArtist = (item.artistName || '').trim();
+
+    const norm = (str) => (str || '').toLowerCase().replace(/[\s\-_\[\]\(\)\{\}'",\.!?]/g, '');
+    const tNorm = norm(rawItemTitle);
+    const aNorm = norm(rawArtist);
+    if (!tNorm) return false;
+
+    // 1. 목표 곡명 및 아티스트 추출
+    let targetTitle = '';
+    let targetArtist = '';
+    let subtitle = '';
+
+    if (mQuery) {
+      const qAnalyzed = analyzeTrackTitle(mQuery);
+      targetTitle = qAnalyzed.title || mQuery;
+      targetArtist = qAnalyzed.artist || '';
+      subtitle = qAnalyzed.subtitle || '';
+    } else if (trk) {
+      const analyzed = analyzeTrackTitle(trk.title, trk.author);
+      targetTitle = analyzed.title || trk.title || '';
+      targetArtist = analyzed.artist || (trk.author && !isChannelPublisher(trk.author) ? trk.author : '');
+      subtitle = analyzed.subtitle || '';
+    }
+
+    const expTitleNorm = norm(targetTitle);
+    const subTitleNorm = norm(subtitle);
+    const expArtNorm = norm(targetArtist);
+
+    // Inst / MR / 피아노 커버 감점 및 배제 (원곡 검색 시 커버/반주곡 오매칭 원천 차단)
+    const isCandInst = /[\(\[]\s*(?:inst|instrumental|mr|반주|cover|커버|piano|피아노)\b/i.test(rawItemTitle);
+    const isTargetInst = /[\(\[]\s*(?:inst|instrumental|mr|반주)\b/i.test(targetTitle);
+    if (isCandInst && !isTargetInst) return false;
+
+    // 2. 제목 일치도 검증 (동의어/번역명/부제 다중 후보 검증)
+    let isTitleMatch = false;
+    const expectedTitleList = expandTitleNames(targetTitle);
+    if (subtitle) {
+      expandTitleNames(subtitle).forEach(st => {
+        if (!expectedTitleList.some(x => x.toLowerCase() === st.toLowerCase())) expectedTitleList.push(st);
+      });
+    }
+    const normTitles = expectedTitleList.map(t => norm(t)).filter(Boolean);
+
+    // 2-1. 정방향 완전 일치
+    if (normTitles.includes(tNorm)) {
+      isTitleMatch = true;
+    }
+    // 2-2. 역방향 일치 (아티스트와 곡명이 뒤바뀐 경우)
+    else if (expArtNorm && tNorm === expArtNorm) {
+      isTitleMatch = true;
+    }
+    // 2-3. 부분문자열 및 포함 관계 검증
+    else {
+      for (const expT of normTitles) {
+        if (expT && tNorm) {
+          if (expT.includes(tNorm)) {
+            const ratio = tNorm.length / expT.length;
+            if (ratio >= 0.70) { isTitleMatch = true; break; }
+          } else if (tNorm.includes(expT)) {
+            const ratio = expT.length / tNorm.length;
+            if (ratio >= 0.60) { isTitleMatch = true; break; }
+          }
+        }
+      }
+      // 2-4. 토큰 기반 검증
+      if (!isTitleMatch) {
+        const STOPWORDS = new Set(['the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'and', 'or', 'is', 'it', 'me', 'my', 'you', 'your', 'with', 'by', 'mv', 'ver', 'version', 'official', 'audio', 'video']);
+        const getTokens = (s) => (s || '').toLowerCase()
+          .replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF]/g, ' ')
+          .split(/\s+/)
+          .filter(w => w.length >= 2 && !STOPWORDS.has(w));
+        const itemTokens = getTokens(rawItemTitle);
+        for (const expT of expectedTitleList) {
+          const expTokens = getTokens(expT);
+          if (itemTokens.length > 0 && expTokens.length > 0) {
+            const matched = itemTokens.filter(t => expTokens.some(e => e === t || (t.length >= 3 && e.includes(t)) || (e.length >= 3 && t.includes(e))));
+            const overlap = matched.length / Math.max(itemTokens.length, expTokens.length);
+            if (overlap >= 0.70) { isTitleMatch = true; break; }
+          }
+        }
+      }
+    }
+
+    if (!isTitleMatch) return false;
+
+    // 3. 아티스트 정합성 검증 (오매칭 방지 핵심)
+    // 채널 배급사이거나 타겟 아티스트 정보가 없는 경우 아티스트 불일치로 탈락시키지 않음
+    if (expArtNorm && aNorm && expArtNorm.length >= 2 && aNorm.length >= 2) {
+      if (isChannelPublisher(targetArtist)) {
+        return true;
+      }
+
+      // 역방향 일치 (후보 아티스트가 곡명과 매칭되고, 후보 곡명이 아티스트와 매칭된 경우)
+      if (normTitles.includes(aNorm) && tNorm === expArtNorm) {
+        return true;
+      }
+
+      const expectedArtists = expandArtistNames(targetArtist);
+      const normArtists = expectedArtists.map(a => norm(a)).filter(Boolean);
+
+      const isArtCompatible =
+        normArtists.some(na => na === aNorm || na.includes(aNorm) || aNorm.includes(na));
+
+      if (!isArtCompatible) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  // 2. 캐시 확인 시 분석된 곡명/아티스트와 일치하는지 엄격 검증 (오매칭된 과거 캐시 즉각 무효화 & 실시간 검색 보장)
   if (qCacheKey) {
     const cached = getCachedLyrics(qCacheKey);
     if (cached && cached.lyrics && cached.lyrics.length > 0) {
-      const cNorm = (cached.trackName || '').toLowerCase().replace(/[\s\-_'"\.,!?]/g, '');
-      if (!expectedTitleNorm || cNorm.includes(expectedTitleNorm) || expectedTitleNorm.includes(cNorm)) {
+      if (isValidCandidate({ trackName: cached.trackName, artistName: cached.artistName }, track, manualQuery)) {
         return cached;
       }
       clearCachedLyrics(qCacheKey);
@@ -2663,15 +2814,12 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
   if (!manualQuery && vid) {
     const cached = getCachedLyrics(vid);
     if (cached && cached.lyrics && cached.lyrics.length > 0) {
-      const cNorm = (cached.trackName || '').toLowerCase().replace(/[\s\-_'"\.,!?]/g, '');
-      if (!expectedTitleNorm || cNorm.includes(expectedTitleNorm) || expectedTitleNorm.includes(cNorm)) {
+      if (isValidCandidate({ trackName: cached.trackName, artistName: cached.artistName }, track, null)) {
         return cached;
       }
       clearCachedLyrics(vid);
     }
   }
-
-  const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
   // Helper: LRCLIB API 호출 (Lrclib-Client 헤더 및 503/429 시 지능형 백오프 재시도)
   const fetchLrclibJson = async (url, retryCount = 1) => {
@@ -2694,14 +2842,12 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
         });
       } catch (err) {
         if (abortSignal && abortSignal.aborted) return null;
-        // 커스텀 헤더 문제 발생 시 헤더 없는 단순 GET 시도
         res = await fetch(url, { signal: controller.signal });
       }
 
       clearTimeout(timer);
       if (abortSignal) abortSignal.removeEventListener('abort', onParentAbort);
 
-      // 서버 일시 과부하(503 ServerOverloaded) 또는 429 시 Retry-After 대기 후 1회 안전 재시도
       if (res.status === 503 || res.status === 429) {
         if (retryCount > 0 && (!abortSignal || !abortSignal.aborted)) {
           let waitMs = 1200;
@@ -2742,7 +2888,6 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
           };
         }
       }
-      // type이 synced인데 syncedLyrics가 없으면 null 반환 (plain으로 섣불리 fallback하지 않음)
       return null;
     }
     if (item.plainLyrics && item.plainLyrics.trim().length > 0) {
@@ -2762,87 +2907,6 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
     return null;
   };
 
-  // 헬퍼: 검색 결과 정합성 정밀 검증 (오매칭 원천 차단 & 곡명/아티스트 일치 필수)
-  const isValidCandidate = (item, trk, mQuery) => {
-    if (!item) return false;
-    const rawItemTitle = (item.trackName || item.name || '').trim();
-    if (!rawItemTitle) return false;
-    const rawArtist = (item.artistName || '').trim();
-
-    const norm = (str) => (str || '').toLowerCase().replace(/[\s\-_\[\]\(\)\{\}'",\.!?]/g, '');
-    const tNorm = norm(rawItemTitle);
-    const aNorm = norm(rawArtist);
-    if (!tNorm) return false;
-
-    // 1. 목표 곡명 및 아티스트 추출
-    let targetTitle = '';
-    let targetArtist = '';
-
-    if (mQuery) {
-      const qAnalyzed = analyzeTrackTitle(mQuery);
-      targetTitle = qAnalyzed.title || mQuery;
-      targetArtist = qAnalyzed.artist || '';
-    } else if (trk) {
-      const analyzed = analyzeTrackTitle(trk.title, trk.author);
-      targetTitle = analyzed.title || trk.title || '';
-      targetArtist = analyzed.artist || trk.author || '';
-    }
-
-    const expTitleNorm = norm(targetTitle);
-    const expArtNorm = norm(targetArtist);
-
-    // 2. 제목 일치도 검증
-    let isTitleMatch = false;
-    if (expTitleNorm === tNorm) {
-      isTitleMatch = true;
-    } else if (expTitleNorm && tNorm) {
-      if (expTitleNorm.includes(tNorm)) {
-        // 후보 제목이 목표 제목의 부분문자열인 경우: 최소 70% 이상의 길이 비중이어야 함 (예: '말해요'로 '헤어지자 말해요' 오매칭 원천 차단)
-        const ratio = tNorm.length / expTitleNorm.length;
-        if (ratio >= 0.70) isTitleMatch = true;
-      } else if (tNorm.includes(expTitleNorm)) {
-        // 목표 제목이 후보 제목의 부분문자열인 경우 (예: '헤어지자 말해요 (Inst.)' 또는 리마스터)
-        const ratio = expTitleNorm.length / tNorm.length;
-        if (ratio >= 0.60) isTitleMatch = true;
-      } else {
-        // 의미 있는 단어 토큰 기반 오버랩 검증 (70% 이상)
-        const STOPWORDS = new Set(['the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'and', 'or', 'is', 'it', 'me', 'my', 'you', 'your', 'with', 'by', 'mv', 'ver', 'version', 'official', 'audio', 'video']);
-        const getTokens = (s) => (s || '').toLowerCase()
-          .replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF]/g, ' ')
-          .split(/\s+/)
-          .filter(w => w.length >= 2 && !STOPWORDS.has(w));
-        const itemTokens = getTokens(rawItemTitle);
-        const expTokens = getTokens(targetTitle);
-        if (itemTokens.length > 0 && expTokens.length > 0) {
-          const matched = itemTokens.filter(t => expTokens.some(e => e === t || (t.length >= 3 && e.includes(t)) || (e.length >= 3 && t.includes(e))));
-          const overlap = matched.length / Math.max(itemTokens.length, expTokens.length);
-          if (overlap >= 0.70) isTitleMatch = true;
-        }
-      }
-    }
-
-    if (!isTitleMatch) return false;
-
-    // 3. 아티스트 정합성 검증 (오매칭 방지 핵심)
-    // 목표 아티스트와 후보 아티스트가 둘 다 존재할 경우, 상호 모순(완전히 다른 아티스트)이면 탈락
-    if (expArtNorm && aNorm && expArtNorm.length >= 2 && aNorm.length >= 2) {
-      const isArtCompatible =
-        expArtNorm === aNorm ||
-        expArtNorm.includes(aNorm) ||
-        aNorm.includes(expArtNorm) ||
-        (typeof expandArtistNames === 'function' && expandArtistNames(targetArtist).some(al => {
-          const alNorm = norm(al);
-          return alNorm === aNorm || alNorm.includes(aNorm) || aNorm.includes(alNorm);
-        }));
-
-      if (!isArtCompatible) {
-        return false;
-      }
-    }
-
-    return true;
-  };
-
   // --- [A] 수동 검색 모드 ---
   if (manualQuery) {
     const rawQ = manualQuery.trim();
@@ -2860,7 +2924,7 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
     const isKorean = /[\uAC00-\uD7AF\u1100-\u11FF]/.test(cleanedQ);
 
     // 구분자 분리 시도 (아티스트 - 곡명)
-    const sepM = cleanedQ.match(/^(.+?)\s*[\-_:\/|]\s*(.+)$/);
+    const sepM = cleanedQ.match(/^(.+?)\s+[\-–—:\/|]\s+(.+)$/);
     let artPart = '';
     let titPart = '';
     if (sepM) {
@@ -2875,6 +2939,14 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
         setCachedLyrics(qCacheKey, krDirect);
         if (vid) setCachedLyrics(vid, krDirect);
         return krDirect;
+      }
+      if (artPart && titPart) {
+        const krDirect2 = await fetchKoreanLyricsApi(`${artPart} ${titPart}`, abortSignal);
+        if (krDirect2 && isValidCandidate({ trackName: krDirect2.trackName, artistName: krDirect2.artistName }, track, manualQuery)) {
+          setCachedLyrics(qCacheKey, krDirect2);
+          if (vid) setCachedLyrics(vid, krDirect2);
+          return krDirect2;
+        }
       }
     }
 
@@ -3011,7 +3083,7 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
   // 한국어 곡이면 한국 대표 음원(Bugs API) 1순위 조회
   if (isAutoKorean) {
     const koreanCandidates = [];
-    for (const p of exactPairs.slice(0, 4)) {
+    for (const p of exactPairs.slice(0, 6)) {
       const artClean = p.artist.replace(/\([^\)]*\)/g, '').trim();
       if (artClean) {
         const c1 = `${artClean} ${p.title}`;
@@ -3026,7 +3098,7 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
     for (const q of queries.slice(0, 3)) {
       if (!koreanCandidates.includes(q)) koreanCandidates.push(q);
     }
-    for (const kc of koreanCandidates.slice(0, 4)) {
+    for (const kc of koreanCandidates.slice(0, 6)) {
       if (abortSignal && abortSignal.aborted) return null;
       const krRes = await fetchKoreanLyricsApi(kc, abortSignal);
       if (krRes && krRes.lyrics && krRes.lyrics.length > 0) {
