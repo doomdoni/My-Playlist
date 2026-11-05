@@ -2184,10 +2184,36 @@ function isCompilationVideo(title) {
   return /(playlist|플레이리스트|노동요|모음|연속재생|1시간|2시간|3시간|hour\s*loop|100곡|top\s*\d+|노래\s*모음|bgm\s*모음|찬양\s*모음|ccm\s*모음|워십\s*모음|worship\s*collection)/i.test(title);
 }
 
+// 2-1. YouTube 영상 제목에서 불필요한 부제목, 가사/자막 태그, kpop lyric 등을 완벽히 걸러내는 노이즈 제거 엔진
+function cleanTitleNoise(str) {
+  if (!str || typeof str !== 'string') return '';
+  let s = str;
+  // 1. 대괄호 태그 전체 제거
+  s = s.replace(/\[[^\]]*\]/g, ' ');
+
+  // 2. 괄호 속 부제목 중 가사/자막/수식어 계열 완전 제거 (괄호 내부 어디에 포함되어 있어도 제거)
+  const parenNoise = /\([^\)]*(?:가사|자막|발음|풀버전|교차편집|찬양|워십|예배|실황|특송|음원|k-?pop|\b(?:lyrics?|lyric\s*video|color\s*coded|sub|subs|eng|han|rom|official|audio|video|clip|mv|m\/v|live|ver|remaster|stage|special|prod)\b)[^\)]*\)/gi;
+  s = s.replace(parenNoise, ' ');
+
+  // 3. 인라인 공식/수식 단어 제거
+  const inlineNoise = /\b(officials?|offcial)(\s*(music|lyric|audio|video|mv|visualizer|release|track|live))?\b|(official\s*(music\s*)?video|official\s*audio|lyric\s*video|m\/v|video\s*clip|performance\s*video|visualizer|live\s*worship|live\s*clip|live\s*ver)/gi;
+  s = s.replace(inlineNoise, ' ');
+
+  // 4. 문자열 끝부분에 붙은 쓸데없는 부제목/가사/kpop lyric/자막 반복 제거 (중첩 꼬리말 완전 제거)
+  const tailNoise = /(?:[\s\-_|/]+|\b)(?:(?:k-?pop\s*)?(?:lyrics?|lyric\s*video|color\s*coded(?:\s*lyrics?)?|가사(?:\s*자막|\s*첨부|\s*포함)?|자막|발음|한글자막|한글가사|한국어가사|eng\s*sub|sub|official\s*(?:video|audio|mv|music\s*video)?|audio|video|m\/v|mv|live(?:\s*clip)?|full\s*ver|풀버전|교차편집|stage\s*mix|k-?pop))+\s*$/i;
+  while (true) {
+    const prev = s;
+    s = s.replace(tailNoise, ' ').trim();
+    if (s === prev) break;
+  }
+
+  return s.replace(/\s+/g, ' ').trim();
+}
+
 // 2-2. YouTube 영상 제목에서 순수 곡명과 아티스트를 최우선으로 정밀 분리/분석하는 엔진
 function analyzeTrackTitle(rawTitle, rawAuthor = '') {
   if (!rawTitle) return { title: '', artist: '', subtitle: '' };
-  let str = rawTitle;
+  let str = cleanTitleNoise(rawTitle);
 
   // 0. 파이프(|) 또는 슬래시 구분 채널명/방송사/쇼 태그 분리 (예: '박재정 - 헤어지자 말해요 | 딩고뮤직', 'Dingo Music | 박재정 - 헤어지자 말해요')
   if (str.includes('|')) {
@@ -2369,14 +2395,8 @@ function getLyricsSearchCandidates(track) {
   for (const raw of titles) {
     if (!raw || raw.startsWith('YouTube 영상')) continue;
 
-    // 1단계: 광고/수식어/CCM/찬양 태그 및 official/offcial 단어 완벽 배제
-    let stripped = raw
-      .replace(/\[[^\]]*\]/g, ' ')
-      .replace(/\((ccm|찬양|워십|worship|praise|gospel|성가|특송|예배|mv|m\/v|official\s*music\s*video|official\s*mv|official\s*video|official\s*audio|audio|가사|lyrics|color\s*coded|live|4k|hd|teaser|remastered|performance|special|clip|풀버전|full\s*ver|교차편집|sub|feat|ft)[^\)]*\)/gi, ' ')
-      .replace(/\b(officials?|offcial)(\s*(music|lyric|audio|video|mv|visualizer|release|track|live))?\b/gi, ' ')
-      .replace(/(official\s*(music\s*)?video|official\s*audio|lyric\s*video|m\/v|video\s*clip|performance\s*video|visualizer|live\s*worship|live\s*clip|live\s*ver)/gi, ' ')
-      .replace(/[\s\-_|/]+(officials?|offcial|가사|찬양|워십|예배|실황|특송|자막|ccm|lyrics|live)$/gi, ' ')
-      .trim();
+    // 1단계: 부제목/가사/자막/kpop lyric 등 수식어 완벽 배제
+    let stripped = cleanTitleNoise(raw);
 
     // 2단계: 따옴표나 홑따옴표로 둘러싸인 곡명 추출 (예: DAY6(데이식스) "한 페이지가 될 수 있게", NewJeans 'Ditto')
     const quoteMatches = stripped.match(/['"「」『』]([^'"「」『』]+)['"「」『』]/);
@@ -2610,7 +2630,7 @@ function parseBugsLyrics(rawLyrics, trackTitle = '', artist = '', totalDuration 
   };
 }
 
-// 4-2. 한국 음원 전용 실시간 싱크 가사 API 호출 (로컬 프록시 연동)
+// 4-2. 한국 음원 대표사(Bugs 싱크 + Melon 전곡) 가사 API 호출 (로컬 프록시 연동)
 async function fetchKoreanLyricsApi(query, abortSignal = null) {
   if (!query) return null;
   try {
@@ -2620,7 +2640,7 @@ async function fetchKoreanLyricsApi(query, abortSignal = null) {
       if (abortSignal.aborted) return null;
       abortSignal.addEventListener('abort', onParentAbort, { once: true });
     }
-    const timer = setTimeout(() => controller.abort(), 3500);
+    const timer = setTimeout(() => controller.abort(), 4000);
 
     const res = await fetch(`/api/korean-lyrics?q=${encodeURIComponent(query)}`, {
       signal: controller.signal
@@ -2631,7 +2651,57 @@ async function fetchKoreanLyricsApi(query, abortSignal = null) {
     if (!res.ok) return null;
     const data = await res.json();
     if (data && data.success && data.rawLyrics) {
+      if (data.source === 'melon' || data.type === 'plain') {
+        const plainLines = data.rawLyrics.split('\n').map(l => l.trim()).filter(Boolean);
+        if (plainLines.length > 0) {
+          return applySmartPlainSync({
+            type: 'plain',
+            isSmartSync: true,
+            lyrics: plainLines.map(text => ({ time: -1, text })),
+            trackName: data.trackTitle || '',
+            artistName: data.artist || '',
+            source: 'online-melon'
+          });
+        }
+      }
       return parseBugsLyrics(data.rawLyrics, data.trackTitle, data.artist);
+    }
+  } catch (e) {}
+  return null;
+}
+
+// 4-3. 글로벌 가사 플랫폼 Genius 가사 API 호출 (로컬 프록시 연동)
+async function fetchGeniusLyricsApi(query, abortSignal = null) {
+  if (!query) return null;
+  try {
+    const controller = new AbortController();
+    const onParentAbort = () => controller.abort();
+    if (abortSignal) {
+      if (abortSignal.aborted) return null;
+      abortSignal.addEventListener('abort', onParentAbort, { once: true });
+    }
+    const timer = setTimeout(() => controller.abort(), 4500);
+
+    const res = await fetch(`/api/genius-lyrics?q=${encodeURIComponent(query)}`, {
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+    if (abortSignal) abortSignal.removeEventListener('abort', onParentAbort);
+
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data && data.success && data.lyrics) {
+      const plainLines = data.lyrics.split('\n').map(l => l.trim()).filter(Boolean);
+      if (plainLines.length > 0) {
+        return applySmartPlainSync({
+          type: 'plain',
+          isSmartSync: true,
+          lyrics: plainLines.map(text => ({ time: -1, text })),
+          trackName: data.trackTitle || '',
+          artistName: data.artist || '',
+          source: 'online-genius'
+        });
+      }
     }
   } catch (e) {}
   return null;
@@ -2685,7 +2755,7 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
 
   const delay = (ms) => new Promise(r => setTimeout(r, ms));
 
-  // 헬퍼: 검색 결과 정합성 정밀 검증 (오매칭 원천 차단 & 곡명/아티스트/별칭 일치 필수)
+  // 헬퍼: 검색 결과 정합성 정밀 검증 (오매칭 원천 차단 & 커버/MR 배제, 유연하고 신속한 매칭)
   const isValidCandidate = (item, trk, mQuery) => {
     if (!item) return false;
     const rawItemTitle = (item.trackName || item.name || '').trim();
@@ -2697,7 +2767,13 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
     const aNorm = norm(rawArtist);
     if (!tNorm) return false;
 
-    // 1. 목표 곡명 및 아티스트 추출
+    // 1. Inst / MR / 피아노 커버 감점 및 배제 (원곡 검색 시 커버/반주곡 오매칭 원천 차단)
+    const isCandInst = /[\(\[]\s*(?:inst|instrumental|mr|반주|cover|커버|piano|피아노)\b/i.test(rawItemTitle);
+    const rawContext = `${trk ? trk.title : ''} ${trk ? (trk.author || '') : ''} ${mQuery || ''}`;
+    const isTargetInst = /[\(\[]\s*(?:inst|instrumental|mr|반주)\b/i.test(rawContext);
+    if (isCandInst && !isTargetInst) return false;
+
+    // 2. 목표 곡명 및 아티스트 추출
     let targetTitle = '';
     let targetArtist = '';
     let subtitle = '';
@@ -2715,87 +2791,71 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
     }
 
     const expTitleNorm = norm(targetTitle);
-    const subTitleNorm = norm(subtitle);
+    const rawFullNorm = norm(rawContext);
     const expArtNorm = norm(targetArtist);
 
-    // Inst / MR / 피아노 커버 감점 및 배제 (원곡 검색 시 커버/반주곡 오매칭 원천 차단)
-    const isCandInst = /[\(\[]\s*(?:inst|instrumental|mr|반주|cover|커버|piano|피아노)\b/i.test(rawItemTitle);
-    const isTargetInst = /[\(\[]\s*(?:inst|instrumental|mr|반주)\b/i.test(targetTitle);
-    if (isCandInst && !isTargetInst) return false;
-
-    // 2. 제목 일치도 검증 (동의어/번역명/부제 다중 후보 검증)
+    // 3. 제목 일치도 검증
     let isTitleMatch = false;
-    const expectedTitleList = expandTitleNames(targetTitle);
-    if (subtitle) {
-      expandTitleNames(subtitle).forEach(st => {
-        if (!expectedTitleList.some(x => x.toLowerCase() === st.toLowerCase())) expectedTitleList.push(st);
-      });
-    }
-    const normTitles = expectedTitleList.map(t => norm(t)).filter(Boolean);
 
-    // 2-1. 정방향 완전 일치
-    if (normTitles.includes(tNorm)) {
+    // 3-1. 원본 영상 제목/검색어에 후보 곡명이 포함되어 있거나 그 반대인 경우 (길이 2 이상)
+    if (tNorm.length >= 2 && rawFullNorm.includes(tNorm)) {
       isTitleMatch = true;
-    }
-    // 2-2. 역방향 일치 (아티스트와 곡명이 뒤바뀐 경우)
-    else if (expArtNorm && tNorm === expArtNorm) {
+    } else if (expTitleNorm.length >= 2 && (tNorm.includes(expTitleNorm) || expTitleNorm.includes(tNorm))) {
       isTitleMatch = true;
-    }
-    // 2-3. 부분문자열 및 포함 관계 검증
-    else {
-      for (const expT of normTitles) {
-        if (expT && tNorm) {
-          if (expT.includes(tNorm)) {
-            const ratio = tNorm.length / expT.length;
-            if (ratio >= 0.70) { isTitleMatch = true; break; }
-          } else if (tNorm.includes(expT)) {
-            const ratio = expT.length / tNorm.length;
-            if (ratio >= 0.60) { isTitleMatch = true; break; }
+    } else if (subtitle && norm(subtitle).length >= 2 && (tNorm.includes(norm(subtitle)) || norm(subtitle).includes(tNorm))) {
+      isTitleMatch = true;
+    } else if (expArtNorm && tNorm === expArtNorm) {
+      // 아티스트와 곡명이 뒤바뀐 경우
+      isTitleMatch = true;
+    } else {
+      // 3-2. 동의어 / 번역명 확장 확인
+      const expectedTitleList = expandTitleNames(targetTitle);
+      if (subtitle) {
+        expandTitleNames(subtitle).forEach(st => {
+          if (!expectedTitleList.some(x => x.toLowerCase() === st.toLowerCase())) expectedTitleList.push(st);
+        });
+      }
+      for (const expT of expectedTitleList) {
+        const etNorm = norm(expT);
+        if (etNorm && tNorm) {
+          if (etNorm.includes(tNorm) || tNorm.includes(etNorm)) {
+            isTitleMatch = true;
+            break;
           }
         }
       }
-      // 2-4. 토큰 기반 검증
+      // 3-3. 단어 토큰 매칭
       if (!isTitleMatch) {
         const STOPWORDS = new Set(['the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'and', 'or', 'is', 'it', 'me', 'my', 'you', 'your', 'with', 'by', 'mv', 'ver', 'version', 'official', 'audio', 'video']);
-        const getTokens = (s) => (s || '').toLowerCase()
-          .replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF]/g, ' ')
-          .split(/\s+/)
-          .filter(w => w.length >= 2 && !STOPWORDS.has(w));
-        const itemTokens = getTokens(rawItemTitle);
-        for (const expT of expectedTitleList) {
-          const expTokens = getTokens(expT);
-          if (itemTokens.length > 0 && expTokens.length > 0) {
-            const matched = itemTokens.filter(t => expTokens.some(e => e === t || (t.length >= 3 && e.includes(t)) || (e.length >= 3 && t.includes(e))));
-            const overlap = matched.length / Math.max(itemTokens.length, expTokens.length);
-            if (overlap >= 0.70) { isTitleMatch = true; break; }
-          }
+        const itemTokens = rawItemTitle.toLowerCase().replace(/[^\w\uAC00-\uD7AF\u1100-\u11FF]/g, ' ').split(/\s+/).filter(w => w.length >= 2 && !STOPWORDS.has(w));
+        const hasTokenMatch = itemTokens.some(tok => rawFullNorm.includes(tok));
+        if (hasTokenMatch && itemTokens.length > 0) {
+          isTitleMatch = true;
         }
       }
     }
 
     if (!isTitleMatch) return false;
 
-    // 3. 아티스트 정합성 검증 (오매칭 방지 핵심)
-    // 채널 배급사이거나 타겟 아티스트 정보가 없는 경우 아티스트 불일치로 탈락시키지 않음
-    if (expArtNorm && aNorm && expArtNorm.length >= 2 && aNorm.length >= 2) {
-      if (isChannelPublisher(targetArtist)) {
-        return true;
-      }
+    // 4. 아티스트 정합성 검증
+    // 채널 배급사이거나 타겟 아티스트 정보가 없는 경우 패스
+    if (!expArtNorm || expArtNorm.length < 2 || isChannelPublisher(targetArtist)) {
+      return true;
+    }
+    // 원본 영상 제목이나 채널명에 후보 아티스트명이 포함되어 있으면 100% 매칭
+    if (aNorm && aNorm.length >= 2 && rawFullNorm.includes(aNorm)) {
+      return true;
+    }
 
-      // 역방향 일치 (후보 아티스트가 곡명과 매칭되고, 후보 곡명이 아티스트와 매칭된 경우)
-      if (normTitles.includes(aNorm) && tNorm === expArtNorm) {
-        return true;
-      }
+    const expectedArtists = expandArtistNames(targetArtist);
+    const normArtists = expectedArtists.map(a => norm(a)).filter(Boolean);
+    const isArtCompatible = normArtists.some(na => na === aNorm || na.includes(aNorm) || aNorm.includes(na));
 
-      const expectedArtists = expandArtistNames(targetArtist);
-      const normArtists = expectedArtists.map(a => norm(a)).filter(Boolean);
+    if (isArtCompatible) return true;
 
-      const isArtCompatible =
-        normArtists.some(na => na === aNorm || na.includes(aNorm) || aNorm.includes(na));
-
-      if (!isArtCompatible) {
-        return false;
-      }
+    // 만약 영상 제목에 후보 아티스트명이 전혀 없고 타겟 아티스트와 완전히 충돌하는 경우에만 배제
+    if (expArtNorm.length >= 3 && aNorm.length >= 3 && !rawFullNorm.includes(aNorm) && !aNorm.includes(expArtNorm)) {
+      return false;
     }
 
     return true;
@@ -2911,326 +2971,175 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
   if (manualQuery) {
     const rawQ = manualQuery.trim();
     if (!rawQ) return null;
+    const cleanedQ = cleanTitleNoise(rawQ);
 
-    // 영상 태그 및 불필요한 수식어 정리
-    const cleanedQ = rawQ
-      .replace(/\[[^\]]*\]/g, ' ')
-      .replace(/\((?:ccm|찬양|워십|worship|praise|mv|m\/v|official\s*music\s*video|official\s*mv|official\s*video|official\s*audio|audio|가사|lyrics|color\s*coded|live|4k|hd|teaser|remastered|performance|special|clip|풀버전|full\s*ver|교차편집|sub|feat|ft)[^\)]*\)/gi, ' ')
-      .replace(/\b(officials?|offcial)(\s*(music|lyric|audio|video|mv|visualizer|release|track|live))?\b/gi, ' ')
-      .replace(/[\s\-_|/]+(officials?|offcial|가사|찬양|워십|예배|실황|특송|자막|ccm|lyrics|live)$/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    const isKorean = /[\uAC00-\uD7AF\u1100-\u11FF]/.test(cleanedQ);
-
-    // 구분자 분리 시도 (아티스트 - 곡명)
-    const sepM = cleanedQ.match(/^(.+?)\s+[\-–—:\/|]\s+(.+)$/);
-    let artPart = '';
-    let titPart = '';
-    if (sepM) {
-      artPart = sanitizeForQuery(sepM[1]);
-      titPart = sanitizeForQuery(sepM[2]);
-    }
-
-    // 0순위 (한국어 곡일 경우): Bugs API 최우선 조회
-    if (isKorean) {
-      const krDirect = await fetchKoreanLyricsApi(cleanedQ, abortSignal);
-      if (krDirect && isValidCandidate({ trackName: krDirect.trackName, artistName: krDirect.artistName }, track, manualQuery)) {
-        setCachedLyrics(qCacheKey, krDirect);
-        if (vid) setCachedLyrics(vid, krDirect);
-        return krDirect;
-      }
-      if (artPart && titPart) {
-        const krDirect2 = await fetchKoreanLyricsApi(`${artPart} ${titPart}`, abortSignal);
-        if (krDirect2 && isValidCandidate({ trackName: krDirect2.trackName, artistName: krDirect2.artistName }, track, manualQuery)) {
-          setCachedLyrics(qCacheKey, krDirect2);
-          if (vid) setCachedLyrics(vid, krDirect2);
-          return krDirect2;
-        }
+    // 1단계: 국내 음원 포털 (Bugs 실시간 싱크 + Melon 전곡 DB) 초고속 프록시 조회 (~200ms)
+    const krRes = await fetchKoreanLyricsApi(cleanedQ, abortSignal);
+    if (krRes && krRes.lyrics && krRes.lyrics.length > 0) {
+      if (isValidCandidate({ trackName: krRes.trackName, artistName: krRes.artistName }, track, manualQuery)) {
+        setCachedLyrics(qCacheKey, krRes);
+        if (vid) setCachedLyrics(vid, krRes);
+        return krRes;
       }
     }
 
-    // 1단계: LRCLIB /api/get (영문/글로벌 팝송 우선 매칭)
-    if (artPart && titPart) {
-      const artList = expandArtistNames(artPart);
-      const titList = expandTitleNames(titPart);
-      for (let i = 0; i < Math.min(3, artList.length); i++) {
-        for (let j = 0; j < Math.min(2, titList.length); j++) {
-          if (abortSignal && abortSignal.aborted) return null;
-          if (i > 0 || j > 0) await delay(200);
-          const item = await fetchLrclibJson(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(artList[i])}&track_name=${encodeURIComponent(titList[j])}`);
-          if (item && item.syncedLyrics && isValidCandidate(item, track, manualQuery)) {
-            const res = buildResult(item, 'synced');
-            if (res) {
-              setCachedLyrics(qCacheKey, res);
-              if (vid) setCachedLyrics(vid, res);
-              return res;
-            }
-          }
-        }
-      }
-
-      // /api/search?artist_name=&track_name= 구조화 인덱스 검색 (synced 우선)
-      for (let i = 0; i < Math.min(2, artList.length); i++) {
-        if (abortSignal && abortSignal.aborted) return null;
-        await delay(250);
-        const list = await fetchLrclibJson(`https://lrclib.net/api/search?artist_name=${encodeURIComponent(artList[i])}&track_name=${encodeURIComponent(titList[0])}`);
-        if (Array.isArray(list) && list.length > 0) {
-          const validList = list.filter(it => isValidCandidate(it, track, manualQuery));
-          const withSync = validList.find(it => it.syncedLyrics && it.syncedLyrics.trim().length > 0);
-          if (withSync) {
-            const res = buildResult(withSync, 'synced');
-            if (res) {
-              setCachedLyrics(qCacheKey, res);
-              if (vid) setCachedLyrics(vid, res);
-              return res;
-            }
-          }
-        }
-      }
-    }
-
-    // 2단계 (비한국어일 경우): Bugs API 폴백
-    if (!isKorean) {
-      const krDirect = await fetchKoreanLyricsApi(cleanedQ, abortSignal);
-      if (krDirect && isValidCandidate({ trackName: krDirect.trackName, artistName: krDirect.artistName }, track, manualQuery)) {
-        setCachedLyrics(qCacheKey, krDirect);
-        if (vid) setCachedLyrics(vid, krDirect);
-        return krDirect;
-      }
-    }
-
-    // 3단계: 곡 제목 단독 검색
-    const queryBase = titPart || qClean || cleanedQ;
-    if (queryBase) {
-      if (abortSignal && abortSignal.aborted) return null;
-      await delay(250);
-      const listTrack = await fetchLrclibJson(`https://lrclib.net/api/search?track_name=${encodeURIComponent(queryBase)}`);
-      if (Array.isArray(listTrack) && listTrack.length > 0) {
-        const validList = listTrack.filter(item => isValidCandidate(item, track, manualQuery));
-        const pool = validList;
-        const withSync = pool.find(item => item.syncedLyrics && item.syncedLyrics.trim().length > 0);
-        if (withSync) {
-          const res = buildResult(withSync, 'synced');
-          if (res) {
-            setCachedLyrics(qCacheKey, res);
-            if (vid) setCachedLyrics(vid, res);
-            return res;
-          }
-        }
-      }
-    }
-
-    // 4단계: /api/search?q= 최종 폴백 (synced 우선 확인 후 plain)
-    if (abortSignal && abortSignal.aborted) return null;
-    await delay(300);
-    const listQ = await fetchLrclibJson(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanedQ || qClean)}`);
-    if (Array.isArray(listQ) && listQ.length > 0) {
-      const validList = listQ.filter(item => isValidCandidate(item, track, manualQuery));
-      const pool = validList;
-      const withSync = pool.find(item => item.syncedLyrics && item.syncedLyrics.trim().length > 0);
-      if (withSync) {
-        const res = buildResult(withSync, 'synced');
-        if (res) {
-          setCachedLyrics(qCacheKey, res);
-          if (vid) setCachedLyrics(vid, res);
-          return res;
-        }
-      }
-      const withPlain = pool.find(item => item.plainLyrics && item.plainLyrics.trim().length > 0);
-      if (withPlain) {
-        const res = buildResult(withPlain, 'plain');
-        if (res) {
-          setCachedLyrics(qCacheKey, res);
-          if (vid) setCachedLyrics(vid, res);
-          return res;
-        }
-      }
-    }
-
-    // 5단계: lyrics.ovh 해외 팝송 보조 온라인 엔진 폴백
-    if (artPart && titPart) {
+    // 2단계: LRCLIB (글로벌 싱크) + Genius (세계 최대 170만+ DB) 초고속 병렬 동시 요청 (~300ms)
+    const lrclibPromise = (async () => {
       try {
-        const ovhRes = await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artPart)}/${encodeURIComponent(titPart)}`, { signal: abortSignal });
-        if (ovhRes.ok) {
-          const ovhData = await ovhRes.json();
-          if (ovhData && ovhData.lyrics && ovhData.lyrics.trim().length > 0) {
-            const plainLines = ovhData.lyrics.split('\n').map(l => l.trim()).filter(Boolean);
-            const res = applySmartPlainSync({
-              type: 'plain',
-              isSmartSync: true,
-              lyrics: plainLines.map(text => ({ time: -1, text })),
-              trackName: titPart,
-              artistName: artPart,
-              source: 'online-lyricsovh'
-            });
-            setCachedLyrics(qCacheKey, res);
-            if (vid) setCachedLyrics(vid, res);
-            return res;
-          }
+        const list = await fetchLrclibJson(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanedQ)}`);
+        if (Array.isArray(list) && list.length > 0) {
+          const valid = list.filter(it => isValidCandidate(it, track, manualQuery));
+          const withSync = valid.find(it => it.syncedLyrics && it.syncedLyrics.trim().length > 0);
+          if (withSync) return buildResult(withSync, 'synced');
+          const withPlain = valid.find(it => it.plainLyrics && it.plainLyrics.trim().length > 0);
+          if (withPlain) return buildResult(withPlain, 'plain');
         }
       } catch (e) {}
+      return null;
+    })();
+
+    const geniusPromise = (async () => {
+      try {
+        const gRes = await fetchGeniusLyricsApi(cleanedQ, abortSignal);
+        if (gRes && gRes.lyrics && gRes.lyrics.length > 0 && isValidCandidate({ trackName: gRes.trackName, artistName: gRes.artistName }, track, manualQuery)) {
+          return gRes;
+        }
+      } catch (e) {}
+      return null;
+    })();
+
+    const [lrclibOut, geniusOut] = await Promise.allSettled([lrclibPromise, geniusPromise]);
+    const lRes = lrclibOut.status === 'fulfilled' ? lrclibOut.value : null;
+    const gRes = geniusOut.status === 'fulfilled' ? geniusOut.value : null;
+
+    if (lRes && lRes.type === 'synced') {
+      setCachedLyrics(qCacheKey, lRes);
+      if (vid) setCachedLyrics(vid, lRes);
+      return lRes;
+    }
+    if (gRes && gRes.lyrics) {
+      setCachedLyrics(qCacheKey, gRes);
+      if (vid) setCachedLyrics(vid, gRes);
+      return gRes;
+    }
+    if (lRes && lRes.lyrics) {
+      setCachedLyrics(qCacheKey, lRes);
+      if (vid) setCachedLyrics(vid, lRes);
+      return lRes;
     }
 
     return null;
   }
 
   // --- [B] 자동 온라인 매칭 모드 (유튜브 제목 자동 분석) ---
-  const { exactPairs, queries } = getLyricsSearchCandidates(track);
-  const trackRawText = `${track ? track.title : ''} ${track ? (track.author || '') : ''}`;
-  const isAutoKorean = /[\uAC00-\uD7AF\u1100-\u11FF]/.test(trackRawText);
+  const { exactPairs, queries, analyzed } = getLyricsSearchCandidates(track);
 
-  // 한국어 곡이면 한국 대표 음원(Bugs API) 1순위 조회
-  if (isAutoKorean) {
-    const koreanCandidates = [];
-    for (const p of exactPairs.slice(0, 6)) {
-      const artClean = p.artist.replace(/\([^\)]*\)/g, '').trim();
-      if (artClean) {
-        const c1 = `${artClean} ${p.title}`;
-        if (!koreanCandidates.includes(c1)) koreanCandidates.push(c1);
-      }
-      const c2 = `${p.artist} ${p.title}`;
-      if (!koreanCandidates.includes(c2)) koreanCandidates.push(c2);
-      if (!koreanCandidates.includes(p.title) && p.title.length >= 2) {
-        koreanCandidates.push(p.title);
-      }
-    }
-    for (const q of queries.slice(0, 3)) {
-      if (!koreanCandidates.includes(q)) koreanCandidates.push(q);
-    }
-    for (const kc of koreanCandidates.slice(0, 6)) {
-      if (abortSignal && abortSignal.aborted) return null;
-      const krRes = await fetchKoreanLyricsApi(kc, abortSignal);
-      if (krRes && krRes.lyrics && krRes.lyrics.length > 0) {
-        if (isValidCandidate({ trackName: krRes.trackName, artistName: krRes.artistName }, track, null)) {
-          if (vid) setCachedLyrics(vid, krRes);
-          return krRes;
-        }
-      }
-    }
-  }
+  let bestArtist = '';
+  let bestTitle = '';
+  let bestQuery = '';
 
-  // 1단계: exactPairs 초고속 O(1) LRCLIB /api/get 시도 (영문 팝송 최우선 매칭)
-  for (let i = 0; i < Math.min(3, exactPairs.length); i++) {
-    const pair = exactPairs[i];
-    if (abortSignal && abortSignal.aborted) return null;
-    if (i > 0) await delay(200);
-    const item = await fetchLrclibJson(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(pair.artist)}&track_name=${encodeURIComponent(pair.title)}`);
-    if (item && item.syncedLyrics && isValidCandidate(item, track, null)) {
-      const res = buildResult(item, 'synced');
-      if (res) {
-        if (vid) setCachedLyrics(vid, res);
-        return res;
-      }
-    }
-  }
-
-  // 2단계: exactPairs 구조화 검색 /api/search?track_name=&artist_name= (synced 우선)
-  for (let i = 0; i < Math.min(2, exactPairs.length); i++) {
-    const pair = exactPairs[i];
-    if (abortSignal && abortSignal.aborted) return null;
-    await delay(250);
-    const list = await fetchLrclibJson(`https://lrclib.net/api/search?artist_name=${encodeURIComponent(pair.artist)}&track_name=${encodeURIComponent(pair.title)}`);
-    if (Array.isArray(list) && list.length > 0) {
-      const validList = list.filter(it => isValidCandidate(it, track, null));
-      const withSync = validList.find(it => it.syncedLyrics && it.syncedLyrics.trim().length > 0);
-      if (withSync) {
-        const res = buildResult(withSync, 'synced');
-        if (res) {
-          if (vid) setCachedLyrics(vid, res);
-          return res;
-        }
-      }
-    }
-  }
-
-  // 3단계: 한국어 곡이 아니었던 경우에도 Bugs API 백업 조회 (해외 유명 팝송도 Bugs에 완벽 구비)
-  if (!isAutoKorean) {
-    const popCandidates = [];
-    if (exactPairs.length > 0) {
-      popCandidates.push(`${exactPairs[0].artist} ${exactPairs[0].title}`);
-      popCandidates.push(exactPairs[0].title);
-    }
-    if (queries.length > 0 && !popCandidates.includes(queries[0])) {
-      popCandidates.push(queries[0]);
-    }
-    for (const pc of popCandidates.slice(0, 2)) {
-      if (abortSignal && abortSignal.aborted) return null;
-      const krRes = await fetchKoreanLyricsApi(pc, abortSignal);
-      if (krRes && krRes.lyrics && krRes.lyrics.length > 0) {
-        if (isValidCandidate({ trackName: krRes.trackName, artistName: krRes.artistName }, track, null)) {
-          if (vid) setCachedLyrics(vid, krRes);
-          return krRes;
-        }
-      }
-    }
-  }
-
-  // 4단계: 곡 제목 단독 구조화 검색 /api/search?track_name= (인덱스 검색)
-  const trackCandidates = exactPairs.length > 0 ? [exactPairs[0].title] : [];
-  if (queries.length > 0 && !trackCandidates.includes(queries[0])) {
-    trackCandidates.push(queries[0]);
-  }
-  for (let i = 0; i < Math.min(2, trackCandidates.length); i++) {
-    const tName = trackCandidates[i];
-    if (abortSignal && abortSignal.aborted) return null;
-    await delay(250);
-    const list = await fetchLrclibJson(`https://lrclib.net/api/search?track_name=${encodeURIComponent(tName)}`);
-    if (Array.isArray(list) && list.length > 0) {
-      const validList = list.filter(item => isValidCandidate(item, track, null));
-      const pool = validList;
-      const withSync = pool.find(item => item.syncedLyrics && item.syncedLyrics.trim().length > 0);
-      if (withSync) {
-        const res = buildResult(withSync, 'synced');
-        if (res) {
-          if (vid) setCachedLyrics(vid, res);
-          return res;
-        }
-      }
-      const withPlain = pool.find(item => item.plainLyrics && item.plainLyrics.trim().length > 0);
-      if (withPlain) {
-        const res = buildResult(withPlain, 'plain');
-        if (res) {
-          if (vid) setCachedLyrics(vid, res);
-          return res;
-        }
-      }
-    }
-  }
-
-  // 5단계: 텍스트 쿼리로 /api/search?q= 폴백 (최대 1개 후보)
-  if (queries.length > 0) {
-    const q = queries[0];
-    if (abortSignal && abortSignal.aborted) return null;
-    await delay(300);
-    const list = await fetchLrclibJson(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`);
-    if (Array.isArray(list) && list.length > 0) {
-      const validList = list.filter(item => isValidCandidate(item, track, null));
-      const pool = validList;
-      const withSync = pool.find(item => item.syncedLyrics && item.syncedLyrics.trim().length > 0);
-      if (withSync) {
-        const res = buildResult(withSync, 'synced');
-        if (res) {
-          if (vid) setCachedLyrics(vid, res);
-          return res;
-        }
-      }
-      const withPlain = pool.find(item => item.plainLyrics && item.plainLyrics.trim().length > 0);
-      if (withPlain) {
-        const res = buildResult(withPlain, 'plain');
-        if (res) {
-          if (vid) setCachedLyrics(vid, res);
-          return res;
-        }
-      }
-    }
-  }
-
-  // 5단계: lyrics.ovh 해외 팝송 보조 온라인 엔진 폴백
   if (exactPairs.length > 0) {
-    const pair = exactPairs[0];
+    bestArtist = exactPairs[0].artist;
+    bestTitle = exactPairs[0].title;
+    bestQuery = `${bestArtist} ${bestTitle}`.trim();
+  } else if (analyzed.title) {
+    bestTitle = analyzed.title;
+    bestArtist = analyzed.artist || '';
+    bestQuery = bestArtist ? `${bestArtist} ${bestTitle}` : bestTitle;
+  } else if (queries.length > 0) {
+    bestQuery = queries[0];
+    bestTitle = queries[0];
+  } else {
+    bestQuery = cleanTitleNoise(track ? track.title : '');
+    bestTitle = bestQuery;
+  }
+
+  // 1단계: Bugs(싱크) + Melon(전곡) 국내 음원사 초고속 단일 조회 (평균 150~300ms)
+  if (bestQuery) {
+    if (abortSignal && abortSignal.aborted) return null;
+    const krRes = await fetchKoreanLyricsApi(bestQuery, abortSignal);
+    if (krRes && krRes.lyrics && krRes.lyrics.length > 0) {
+      if (isValidCandidate({ trackName: krRes.trackName, artistName: krRes.artistName }, track, null)) {
+        if (vid) setCachedLyrics(vid, krRes);
+        return krRes;
+      }
+    }
+
+    // 곡명 단독 보조 1회 (아티스트 오매칭 가능성 배제)
+    if (bestTitle && bestTitle !== bestQuery && bestTitle.length >= 2) {
+      if (abortSignal && abortSignal.aborted) return null;
+      const krRes2 = await fetchKoreanLyricsApi(bestTitle, abortSignal);
+      if (krRes2 && krRes2.lyrics && krRes2.lyrics.length > 0) {
+        if (isValidCandidate({ trackName: krRes2.trackName, artistName: krRes2.artistName }, track, null)) {
+          if (vid) setCachedLyrics(vid, krRes2);
+          return krRes2;
+        }
+      }
+    }
+  }
+
+  // 2단계: LRCLIB (글로벌 싱크) + Genius (세계 최대 170만+ 가사 DB) 초고속 병렬 동시 요청 (~300ms)
+  const lrclibPromise = (async () => {
     try {
-      const ovhRes = await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(pair.artist)}/${encodeURIComponent(pair.title)}`, { signal: abortSignal });
+      // 1) 구조화 /api/get 시도
+      if (bestArtist && bestTitle) {
+        const item = await fetchLrclibJson(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(bestArtist)}&track_name=${encodeURIComponent(bestTitle)}`);
+        if (item && item.syncedLyrics && isValidCandidate(item, track, null)) {
+          const res = buildResult(item, 'synced');
+          if (res) return res;
+        }
+      }
+      // 2) 텍스트 쿼리 /api/search?q=
+      const qToSearch = bestQuery || bestTitle;
+      if (qToSearch) {
+        const list = await fetchLrclibJson(`https://lrclib.net/api/search?q=${encodeURIComponent(qToSearch)}`);
+        if (Array.isArray(list) && list.length > 0) {
+          const valid = list.filter(it => isValidCandidate(it, track, null));
+          const withSync = valid.find(it => it.syncedLyrics && it.syncedLyrics.trim().length > 0);
+          if (withSync) return buildResult(withSync, 'synced');
+          const withPlain = valid.find(it => it.plainLyrics && it.plainLyrics.trim().length > 0);
+          if (withPlain) return buildResult(withPlain, 'plain');
+        }
+      }
+    } catch (e) {}
+    return null;
+  })();
+
+  const geniusPromise = (async () => {
+    try {
+      const gq = bestQuery || bestTitle;
+      if (gq) {
+        const gRes = await fetchGeniusLyricsApi(gq, abortSignal);
+        if (gRes && gRes.lyrics && gRes.lyrics.length > 0 && isValidCandidate({ trackName: gRes.trackName, artistName: gRes.artistName }, track, null)) {
+          return gRes;
+        }
+      }
+    } catch (e) {}
+    return null;
+  })();
+
+  const [lrclibOut, geniusOut] = await Promise.allSettled([lrclibPromise, geniusPromise]);
+  const lRes = lrclibOut.status === 'fulfilled' ? lrclibOut.value : null;
+  const gRes = geniusOut.status === 'fulfilled' ? geniusOut.value : null;
+
+  // 싱크 가사 우선 반환, 그 다음 일반 가사
+  if (lRes && lRes.type === 'synced') {
+    if (vid) setCachedLyrics(vid, lRes);
+    return lRes;
+  }
+  if (gRes && gRes.lyrics) {
+    if (vid) setCachedLyrics(vid, gRes);
+    return gRes;
+  }
+  if (lRes && lRes.lyrics) {
+    if (vid) setCachedLyrics(vid, lRes);
+    return lRes;
+  }
+
+  // 3단계: 최종 해외 보조 lyrics.ovh
+  if (bestArtist && bestTitle) {
+    try {
+      const ovhRes = await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(bestArtist)}/${encodeURIComponent(bestTitle)}`, { signal: abortSignal });
       if (ovhRes.ok) {
         const ovhData = await ovhRes.json();
         if (ovhData && ovhData.lyrics && ovhData.lyrics.trim().length > 0) {
@@ -3239,8 +3148,8 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
             type: 'plain',
             isSmartSync: true,
             lyrics: plainLines.map(text => ({ time: -1, text })),
-            trackName: pair.title,
-            artistName: pair.artist,
+            trackName: bestTitle,
+            artistName: bestArtist,
             source: 'online-lyricsovh'
           });
           if (vid) setCachedLyrics(vid, res);
