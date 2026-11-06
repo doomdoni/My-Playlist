@@ -1962,11 +1962,85 @@ const COMMON_ARTIST_MAP = {
   '키드밀리': ['Kid Milli'],
   'kid milli': ['키드밀리'],
   '저스디스': ['JUSTHIS'],
-  'justhis': ['저스디스']
+  'justhis': ['저스디스'],
+  // --- CCM / 찬양 / 워십 대표 아티스트 ---
+  '마커스워십': ['마커스', 'Markers Worship', 'MARKERS WORSHIP', '마커스 워십', 'Markers'],
+  '마커스': ['마커스워십', 'Markers Worship', 'MARKERS WORSHIP', 'Markers'],
+  'markers worship': ['마커스워십', '마커스', 'Markers'],
+  'markers': ['마커스워십', '마커스'],
+  '위러브': ['WELOVE', 'Welove', '위 러브'],
+  'welove': ['위러브', 'WELOVE'],
+  '피아워십': ['F.I.A Worship', 'FIA Worship', '피아 워십', 'F.I.A', 'FIA WORSHIP'],
+  'f.i.a worship': ['피아워십', 'FIA Worship'],
+  'fia worship': ['피아워십', 'F.I.A Worship'],
+  '제이어스': ['J-US', 'JUS', 'J-Us', '제이 어스'],
+  'j-us': ['제이어스', 'JUS'],
+  '어노인팅': ['Anointing', 'ANOINTING', '어노인팅 미니스트리'],
+  'anointing': ['어노인팅'],
+  '아이자야씩스티원': ['아이자야 씩스티원', 'Isaiah6tyOne', 'Isaiah 6tyOne', 'Isaiah61', '아이자야'],
+  'isaiah6tyone': ['아이자야씩스티원', '아이자야 씩스티원'],
+  '손경민': ['손경민 목사', '손경민(목사)'],
+  '염평안': ['염평안 (HIS NAME)', '히즈네임 염평안'],
+  '찬미워십': ['Chanmi Worship', '민호기', '민호기 목사'],
+  '예수전도단': ['YWAM', '캠퍼스워십', 'Campus Worship'],
+  '캠퍼스워십': ['예수전도단', 'Campus Worship'],
+  '히즈네임': ['His Name', '염평안'],
+  '팀룩원': ['Team Look One'],
+  '달빛마을': ['Moonlight Village'],
+  '예람워십': ['Yeram Worship', '예람 워십'],
+  '시와그림': ['시와 그림'],
+  '소리엘': ['Soriel'],
+  '다윗의장막': ['다윗의 장막', 'Scott Brenner', '스캇 브래너'],
+  '헤리티지': ['Heritage', '헤리티지 매스콰이어'],
+  '한웅재': ['꿈이있는자유', '한웅재 목사'],
+  '꿈이있는자유': ['한웅재'],
+  '조수아': ['Joshua'],
+  '강찬': ['Kang Chan'],
+  'hillsong': ['힐송', 'Hillsong Worship', 'Hillsong UNITED', 'Hillsong Young & Free'],
+  'hillsong worship': ['힐송', 'Hillsong', 'Hillsong UNITED'],
+  'bethel music': ['베델뮤직', 'Bethel'],
+  'elevation worship': ['엘리베이션 워십', 'Elevation'],
+  'phil wickham': ['필 윅햄'],
+  'cory asbury': ['코리 애즈베리'],
+  'matt redman': ['맷 레드맨'],
+  'chris tomlin': ['크리스 탐린'],
+  'lauren daigle': ['로렌 다이글'],
+  'kari jobe': ['카리 조브'],
+  'leeland': ['릴랜드', 'Leeland'],
+  'sinach': ['시낙', 'Sinach'],
+  'planetshakers': ['플래닛쉐이커스']
 };
 
 // 0-1. 한국 대표 곡명 한/영 상호 변환 매핑 (LRCLIB 글로벌 영문 원제 정밀 매칭)
 const COMMON_TITLE_MAP = {
+  // --- CCM / 찬양 / 워십 대표 곡명 ---
+  '시간을 뚫고': ['Through the Time', 'Break Through the Time'],
+  'through the time': ['시간을 뚫고'],
+  '꽃들도': ['Flowers', '花も'],
+  'flowers': ['꽃들도'],
+  '은혜': ['Grace'],
+  'grace': ['은혜'],
+  '원하고 바라고 기도합니다': ['I Want, Hope and Pray', 'I Hope and Pray'],
+  '공감하시네': ['He Empathizes', 'Empathize'],
+  '요게벳의 노래': ['Song of Jochebed', 'Jochebed'],
+  'song of jochebed': ['요게벳의 노래'],
+  '예수 늘 함께 하시네': ['Jesus, Always with Me', 'Jesus Always With Me'],
+  'jesus, always with me': ['예수 늘 함께 하시네'],
+  '내 모습 이대로': ['Just As I Am'],
+  'just as i am': ['내 모습 이대로'],
+  '광야를 지나며': ['Passing Through the Wilderness', 'Wilderness'],
+  '주의 자비가 내려와': ['Mercy Is Falling'],
+  '아무것도 두려워 말라': ['Do Not Fear Anything', 'Don\'t Be Afraid'],
+  'way maker': ['웨이 메이커'],
+  '웨이 메이커': ['Way Maker'],
+  'goodness of god': ['하나님의 선하심', '주의 선하심'],
+  '하나님의 선하심': ['Goodness of God'],
+  'living hope': ['산 소망'],
+  '산 소망': ['Living Hope'],
+  '10,000 reasons': ['만 가지 이유', 'Bless the Lord'],
+  'reckless love': ['무조건적인 사랑'],
+  'what a beautiful name': ['아름다우신 이름'],
+  'oceans': ['오션스', 'Oceans (Where Feet May Fail)'],
   '한 페이지가 될 수 있게': ['Time of Our Life'],
   'time of our life': ['한 페이지가 될 수 있게'],
   '예뻤어': ['You Were Beautiful'],
@@ -2188,12 +2262,19 @@ function isCompilationVideo(title) {
 function cleanTitleNoise(str) {
   if (!str || typeof str !== 'string') return '';
   let s = str;
-  // 1. 대괄호 태그 전체 제거
-  s = s.replace(/\[[^\]]*\]/g, ' ');
+  // 1. 태그/수식어 대괄호만 제거하고, 아티스트/곡명 대괄호([마커스워십], [피아워십], [아이유] 등)는 보존
+  const bracketTagNoise = /\[\s*(?:ccm|찬양|워십\s*(?:라이브|영상|실황)?|은혜로운\s*찬양|주일\s*예배|예배\s*실황|실황|특송|성가|worship\s*live|live\s*worship|praise|gospel|mv|m\/v|official(?:\s*(?:video|audio|mv|music\s*video))?|video|audio|가사(?:\s*자막)?|자막|발음|lyrics?|color\s*coded|live(?:\s*clip)?|4k|hd|full\s*ver|풀버전|교차편집|stage|sub|단독|선공개|mr|ar|inst|instrumental|cover|커버|playlist|k-?pop)[^\]]*\]/gi;
+  s = s.replace(bracketTagNoise, ' ');
 
-  // 2. 괄호 속 부제목 중 가사/자막/수식어 계열 완전 제거 (괄호 내부 어디에 포함되어 있어도 제거)
-  const parenNoise = /\([^\)]*(?:가사|자막|발음|풀버전|교차편집|찬양|워십|예배|실황|특송|음원|k-?pop|\b(?:lyrics?|lyric\s*video|color\s*coded|sub|subs|eng|han|rom|official|audio|video|clip|mv|m\/v|live|ver|remaster|stage|special|prod)\b)[^\)]*\)/gi;
-  s = s.replace(parenNoise, ' ');
+  // 시작 부분의 [아티스트] 형태는 아티스트 분리를 위해 '아티스트 - ' 형태로 치환
+  s = s.replace(/^\[([^\]]+)\]\s*/, '$1 - ');
+
+  // 2. 괄호 속 부제목 중 가사/자막/수식어 계열 제거 (단, 워십 아티스트명 마커스, 피아워십, 찬미워십 등은 절대 삭제하지 않음)
+  const parenNoise = /\([^\)]*(?:가사|자막|발음|풀버전|교차편집|음원|k-?pop|\b(?:ccm|lyrics?|lyric\s*video|color\s*coded|sub|subs|eng|han|rom|official|audio|video|clip|mv|m\/v|live|ver|remaster|stage|special|prod)\b|찬양\s*(?:모음|영상|실황|연속듣기|라이브|듣기)?|은혜로운\s*찬양|예배\s*(?:실황|라이브|영상)?|주일\s*예배|실황\s*(?:라이브|영상)?|특송|성가)[^\)]*\)/gi;
+  const artistCheck = /(마커스|피아|찬미|위러브|welove|제이어스|j-us|어노인팅|anointing|아이자야|isaiah|hillsong|elevation|bethel|손경민|염평안)/i;
+  s = s.replace(parenNoise, (match) => {
+    return artistCheck.test(match) ? match : ' ';
+  });
 
   // 3. 인라인 공식/수식 단어 제거
   const inlineNoise = /\b(officials?|offcial)(\s*(music|lyric|audio|video|mv|visualizer|release|track|live))?\b|(official\s*(music\s*)?video|official\s*audio|lyric\s*video|m\/v|video\s*clip|performance\s*video|visualizer|live\s*worship|live\s*clip|live\s*ver)/gi;
@@ -2233,13 +2314,12 @@ function analyzeTrackTitle(rawTitle, rawAuthor = '') {
     }
   }
 
-  // 1. 광고, 태그, MV 수식어 제거
+  // 1. 광고, 태그, MV 수식어 제거 (단, 아티스트명 대괄호/괄호는 보존)
   str = str
-    .replace(/\[[^\]]*\]/g, ' ')
-    .replace(/\((?:ccm|찬양|워십|worship|praise|gospel|성가|특송|예배|mv|m\/v|official\s*music\s*video|official\s*mv|official\s*video|official\s*audio|audio|가사|lyrics|color\s*coded|live|4k|hd|teaser|remastered|performance|special|clip|풀버전|full\s*ver|교차편집|sub|feat|ft)[^\)]*\)/gi, ' ')
+    .replace(/\[\s*(?:ccm|찬양|워십\s*(?:라이브|영상|실황)?|은혜로운\s*찬양|주일\s*예배|예배\s*실황|실황|특송|성가|worship\s*live|live\s*worship|praise|gospel|mv|m\/v|official(?:\s*(?:video|audio|mv|music\s*video))?|video|audio|가사(?:\s*자막)?|자막|발음|lyrics?|color\s*coded|live(?:\s*clip)?|4k|hd|full\s*ver|풀버전|교차편집|stage|sub|단독|선공개|mr|ar|inst|instrumental|cover|커버|playlist|k-?pop)[^\]]*\]/gi, ' ')
+    .replace(/^\[([^\]]+)\]\s*/, '$1 - ')
     .replace(/\b(officials?|offcial)(\s*(music|lyric|audio|video|mv|visualizer|release|track|live))?\b/gi, ' ')
     .replace(/(official\s*(music\s*)?video|official\s*audio|lyric\s*video|m\/v|video\s*clip|performance\s*video|visualizer|live\s*worship|live\s*clip|live\s*ver)/gi, ' ')
-    .replace(/[\s\-_|/]+(officials?|offcial|가사|찬양|워십|예배|실황|특송|자막|ccm|lyrics|live)$/gi, ' ')
     .trim();
 
   // 2. 따옴표 속 곡명 확인 (예: fromis_9 (프로미스나인) 'DM', DAY6 "한 페이지가 될 수 있게")
@@ -2263,11 +2343,16 @@ function analyzeTrackTitle(rawTitle, rawAuthor = '') {
     let raw2 = sepM[2].replace(/\((feat|ft)\.[^\)]*\)/gi, ' ').trim();
     let subTitle = '';
 
-    // 곡명 뒤 괄호 속 부제/영문명 분리 (예: '헤어지자 말해요 (Let\'s Say Goodbye)')
+    // 곡명 뒤 괄호 속 부제/영문명 분리 (예: '헤어지자 말해요 (Let\'s Say Goodbye)', '은혜 (Grace)')
     const subM = raw2.match(/^([^\(\)]+)\s*\(([^\)]+)\)/);
     if (subM) {
       raw2 = subM[1].trim();
       subTitle = sanitizeForQuery(subM[2]);
+    }
+    const subM1 = raw1.match(/^([^\(\)]+)\s*\(([^\)]+)\)/);
+    if (subM1) {
+      raw1 = subM1[1].trim();
+      if (!subTitle) subTitle = sanitizeForQuery(subM1[2]);
     }
 
     const pM1 = raw1.match(/^([^\(\)]+)\s*\(([^\)]+)\)/);
@@ -2286,8 +2371,10 @@ function analyzeTrackTitle(rawTitle, rawAuthor = '') {
 
     // 역방향 (곡명 - 아티스트) 확인: s2가 아티스트이고 s1이 곡명인지 확인
     const isPart2Artist = Object.keys(COMMON_ARTIST_MAP).some(k => s2.toLowerCase() === k.toLowerCase()) ||
+                          /(워십|찬양|worship|praise|band|밴드|ministry)/i.test(s2) ||
                           (authorClean && (authorClean.toLowerCase().includes(s2.toLowerCase()) || s2.toLowerCase().includes(authorClean.toLowerCase())));
     const isPart1Artist = Object.keys(COMMON_ARTIST_MAP).some(k => s1.toLowerCase() === k.toLowerCase()) ||
+                          /(워십|찬양|worship|praise|band|밴드|ministry)/i.test(s1) ||
                           (authorClean && (authorClean.toLowerCase().includes(s1.toLowerCase()) || s1.toLowerCase().includes(authorClean.toLowerCase())));
 
     if (isPart2Artist && !isPart1Artist) {
@@ -2297,7 +2384,24 @@ function analyzeTrackTitle(rawTitle, rawAuthor = '') {
     }
   }
 
-  // 4. 일반 괄호 분리 (예: "프로미스나인 (fromis_9) DM")
+  // 4-1. "곡명 (아티스트)" 형태 분리 (예: "예수 늘 함께 하시네 (피아워십)", "은혜 (손경민)")
+  const pEndMatch = str.match(/^([^\(\)]+)\s*\(([^\)]+)\)$/);
+  if (pEndMatch) {
+    const rawT = sanitizeForQuery(pEndMatch[1]);
+    const rawA = sanitizeForQuery(pEndMatch[2]);
+    if (rawT && rawA) {
+      const isPart2Artist = Object.keys(COMMON_ARTIST_MAP).some(k => rawA.toLowerCase() === k.toLowerCase()) ||
+                            /(워십|찬양|worship|praise|band|밴드|ministry)/i.test(rawA);
+      const isPart1Artist = Object.keys(COMMON_ARTIST_MAP).some(k => rawT.toLowerCase() === k.toLowerCase());
+      if (isPart2Artist || !isPart1Artist) {
+        return { title: rawT, artist: rawA, subtitle: '' };
+      } else {
+        return { title: rawA, artist: rawT, subtitle: '' };
+      }
+    }
+  }
+
+  // 4-2. 일반 괄호 분리 (예: "프로미스나인 (fromis_9) DM")
   const pM2 = str.match(/^([^\(\)]+)\s*\(([^\)]+)\)\s*(.*)$/);
   if (pM2 && pM2[3] && pM2[3].trim().length >= 1) {
     const a = /[\uAC00-\uD7AF]/.test(pM2[1]) ? pM2[1].trim() : pM2[2].trim();
@@ -2852,6 +2956,18 @@ async function fetchLyrics(track, manualQuery = null, abortSignal = null) {
     const isArtCompatible = normArtists.some(na => na === aNorm || na.includes(aNorm) || aNorm.includes(na));
 
     if (isArtCompatible) return true;
+
+    // CCM / 찬양 / 워십 또는 커버 영상의 경우, 다른 워십팀/교회의 찬양 실황이나 커버 영상이더라도 원곡/원작자의 가사를 온전히 수용
+    const isWorshipContext = /[\s\-_\[\]\(\)](?:ccm|찬양|워십|예배|특송|성가|worship|praise|gospel)\b/i.test(rawContext) ||
+                             /(워십|찬양|교회|미니스트리|찬양단|찬양팀|worship|praise|ministry|choir)/i.test(targetArtist) ||
+                             /(워십|찬양|교회|미니스트리|찬양단|찬양팀|worship|praise|ministry|choir)/i.test(rawArtist) ||
+                             /(마커스|위러브|피아워십|제이어스|어노인팅|아이자야|손경민|염평안|찬미워십|예수전도단|hillsong|bethel|elevation)/i.test(targetArtist) ||
+                             /(마커스|위러브|피아워십|제이어스|어노인팅|아이자야|손경민|염평안|찬미워십|예수전도단|hillsong|bethel|elevation)/i.test(rawArtist);
+    const isCoverContext = /(?:cover|커버|가창|노래)/i.test(rawContext);
+
+    if (isWorshipContext || isCoverContext) {
+      return true;
+    }
 
     // 만약 영상 제목에 후보 아티스트명이 전혀 없고 타겟 아티스트와 완전히 충돌하는 경우에만 배제
     if (expArtNorm.length >= 3 && aNorm.length >= 3 && !rawFullNorm.includes(aNorm) && !aNorm.includes(expArtNorm)) {
